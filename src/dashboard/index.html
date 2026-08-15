@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>History Keeper</title>
+    <link rel="stylesheet" href="dashboard.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="mark" aria-hidden="true"></span>
+        <h1>History Keeper</h1>
+      </div>
+      <div class="topbar-meta">
+        <span id="device-badge" class="badge" title="This device's archive id"></span>
+        <button id="theme" class="theme-toggle" title="Switch between system, light and dark">Theme</button>
+        <a class="link" href="../options/index.html">Options</a>
+      </div>
+    </header>
+
+    <div id="banners"></div>
+
+    <section class="stats" id="stats">
+      <div class="stat"><span class="stat-value" id="stat-visits">—</span><span class="stat-label">visits archived</span></div>
+      <div class="stat"><span class="stat-value" id="stat-pages">—</span><span class="stat-label">distinct pages</span></div>
+      <div class="stat"><span class="stat-value" id="stat-oldest">—</span><span class="stat-label">oldest entry</span></div>
+      <div class="stat"><span class="stat-value" id="stat-span">—</span><span class="stat-label">days covered</span></div>
+      <div class="stat" title="Disk used by the archive, as estimated by the browser">
+        <span class="stat-value" id="stat-size">—</span><span class="stat-label">on disk</span>
+      </div>
+    </section>
+
+    <main class="layout">
+      <div class="main-col">
+        <form class="search" id="search-form">
+          <input
+            type="search"
+            id="q"
+            placeholder="Search titles and URLs — fuzzy, as you type…"
+            autocomplete="off"
+            autofocus
+          />
+          <div class="filters">
+            <label>From <input type="date" id="from" /></label>
+            <label>To <input type="date" id="to" /></label>
+            <label>Site <input type="text" id="host" placeholder="example.com" autocomplete="off" /></label>
+            <label>
+              Sort
+              <select id="sort">
+                <option value="relevance">Best match</option>
+                <option value="time">Newest first</option>
+              </select>
+            </label>
+            <button type="button" id="clear">Clear</button>
+          </div>
+        </form>
+
+        <p class="result-summary" id="result-summary">Loading…</p>
+
+        <ol class="results" id="results"></ol>
+
+        <nav class="pager">
+          <button id="prev" disabled>← Newer</button>
+          <span id="page-label">Page 1</span>
+          <button id="next" disabled>Older →</button>
+        </nav>
+      </div>
+
+      <aside class="side-col">
+        <section class="card">
+          <h2>Sync folder</h2>
+          <p class="muted" id="sync-status">Not connected.</p>
+          <div class="button-row">
+            <button id="connect" class="primary">Connect folder</button>
+            <button id="sync-now" disabled>Sync now</button>
+          </div>
+          <p class="muted small" id="sync-detail"></p>
+          <details>
+            <summary>How this works</summary>
+            <p class="small">
+              Pick a folder inside Google Drive, OneDrive, or Dropbox. Each device appends
+              to its own monthly <code>.ndjson</code> shard inside a
+              <code>history-keeper</code> subfolder and reads the others. Nothing is ever
+              written by two devices, so the cloud client has no conflicts to resolve.
+            </p>
+          </details>
+        </section>
+
+        <section class="card">
+          <h2>Backup &amp; transfer</h2>
+          <div class="button-row">
+            <button id="snapshot">Download snapshot</button>
+            <button id="import-btn">Import file…</button>
+          </div>
+          <input type="file" id="import-file" accept=".ndjson,.jsonl,.json" hidden />
+          <p class="muted small" id="backup-detail"></p>
+        </section>
+
+        <section class="card">
+          <h2>Top sites</h2>
+          <ul class="hosts" id="top-hosts"></ul>
+        </section>
+
+        <section class="card">
+          <h2>Devices</h2>
+          <button id="load-devices">Show breakdown</button>
+          <ul class="hosts" id="devices"></ul>
+        </section>
+      </aside>
+    </main>
+
+    <script type="module" src="dashboard.js"></script>
+  </body>
+</html>

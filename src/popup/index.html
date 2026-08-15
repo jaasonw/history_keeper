@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>History Keeper</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <div class="head">
+      <span class="mark" aria-hidden="true"></span>
+      <strong>History Keeper</strong>
+    </div>
+
+    <dl class="figures">
+      <div><dt>Visits archived</dt><dd id="visits">—</dd></div>
+      <div><dt>Distinct pages</dt><dd id="pages">—</dd></div>
+      <div><dt>Oldest entry</dt><dd id="oldest">—</dd></div>
+      <div title="Disk used by the archive, as estimated by the browser">
+        <dt>On disk</dt><dd id="size">—</dd>
+      </div>
+      <div><dt>Last sync</dt><dd id="sync">—</dd></div>
+    </dl>
+
+    <p class="note" id="note"></p>
+    <progress id="progress" hidden></progress>
+
+    <div class="actions">
+      <button id="open" class="primary">Open dashboard</button>
+      <button id="options">Options</button>
+    </div>
+
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>

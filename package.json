@@ -1,0 +1,13 @@
+{
+  "name": "history-keeper",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Chrome extension that keeps a permanent local archive of browsing history past the 90-day expiry.",
+  "type": "module",
+  "scripts": {
+    "test": "node tests/logic.test.mjs"
+  },
+  "devDependencies": {
+    "fake-indexeddb": "^6.0.0"
+  }
+}

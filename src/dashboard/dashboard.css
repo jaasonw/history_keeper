@@ -1,0 +1,386 @@
+/* Catppuccin — Latte for light, Macchiato for dark. Each value is annotated with the
+   palette name it comes from, so the mapping can be checked against catppuccin.com
+   rather than eyeballed. */
+
+:root,
+:root[data-theme="latte"] {
+  --bg: #e6e9ef;          /* mantle */
+  --surface: #eff1f5;     /* base */
+  --border: #ccd0da;      /* surface0 */
+  --text: #4c4f69;        /* text */
+  --muted: #6c6f85;       /* subtext0 */
+  --accent: #8839ef;      /* mauve */
+  --accent-soft: #e3dbf4; /* mauve at 12% over base */
+  --accent-ink: #eff1f5;  /* base — legible on the accent fill */
+  --ok: #40a02b;          /* green */
+  --danger: #d20f39;      /* red */
+  --radius: 10px;
+  color-scheme: light;
+}
+
+/* Macchiato appears twice: once as the default for a machine set to dark, once as the
+   explicit choice. The second must also win on a machine set to light, and a media
+   query cannot be folded into a selector list, so the block is repeated verbatim.
+   Keep the two in step. */
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="latte"]) {
+    --bg: #1e2030;          /* mantle */
+    --surface: #24273a;     /* base */
+    --border: #363a4f;      /* surface0 */
+    --text: #cad3f5;        /* text */
+    --muted: #a5adcb;       /* subtext0 */
+    --accent: #c6a0f6;      /* mauve */
+    --accent-soft: #3b3854; /* mauve at 14% over base */
+    --accent-ink: #24273a;  /* base — the accent is a pastel, so ink goes dark */
+    --ok: #a6da95;          /* green */
+    --danger: #ed8796;      /* red */
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="macchiato"] {
+  --bg: #1e2030;
+  --surface: #24273a;
+  --border: #363a4f;
+  --text: #cad3f5;
+  --muted: #a5adcb;
+  --accent: #c6a0f6;
+  --accent-soft: #3b3854;
+  --accent-ink: #24273a;
+  --ok: #a6da95;
+  --danger: #ed8796;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+/* ---------------------------------------------------------------- top bar */
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 24px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.brand { display: flex; align-items: center; gap: 10px; }
+.brand h1 { font-size: 16px; margin: 0; letter-spacing: -0.01em; }
+
+.mark {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 3px solid var(--accent);
+  border-top-color: transparent;
+  transform: rotate(-45deg);
+}
+
+.topbar-meta { display: flex; align-items: center; gap: 14px; }
+
+.badge {
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-size: 12px;
+  color: var(--muted);
+  background: var(--accent-soft);
+  border-radius: 999px;
+  padding: 3px 10px;
+}
+
+.link { color: var(--accent); text-decoration: none; }
+.link:hover { text-decoration: underline; }
+
+.theme-toggle {
+  font-size: 12px;
+  padding: 4px 11px;
+  border-radius: 999px;
+  color: var(--muted);
+  background: var(--bg);
+  /* The label is the current state, so it changes on every click. Hold the widest of
+     the three so the button — and the topbar beside it — does not jump. */
+  min-width: 76px;
+  text-align: center;
+}
+
+/* ---------------------------------------------------------------- banners */
+
+.banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 24px;
+  background: var(--accent-soft);
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+
+.banner progress { width: 180px; }
+.banner.error { background: color-mix(in srgb, var(--danger) 12%, transparent); }
+
+/* ------------------------------------------------------------------ stats */
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 1px;
+  background: var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.stat {
+  background: var(--surface);
+  padding: 14px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.stat-value { font-size: 22px; font-weight: 600; letter-spacing: -0.02em; }
+.stat-label { font-size: 12px; color: var(--muted); }
+
+/* ----------------------------------------------------------------- layout */
+
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 24px;
+  padding: 24px;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .layout { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* ----------------------------------------------------------------- search */
+
+.search {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px;
+  margin-bottom: 16px;
+}
+
+#q {
+  width: 100%;
+  padding: 10px 12px;
+  font-size: 15px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+}
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.filters label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.filters input,
+.filters select {
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+
+.filters select:disabled { opacity: 0.5; }
+
+button {
+  font: inherit;
+  font-size: 13px;
+  padding: 7px 13px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) { border-color: var(--accent); }
+button:disabled { opacity: 0.5; cursor: default; }
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+
+/* ---------------------------------------------------------------- results */
+
+.result-summary { color: var(--muted); font-size: 13px; margin: 0 0 10px 2px; }
+
+.results {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.results li {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: baseline;
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.results li:last-child { border-bottom: none; }
+.results li:hover { background: var(--accent-soft); }
+
+.when {
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.entry { min-width: 0; }
+
+.entry a {
+  color: var(--text);
+  text-decoration: none;
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.entry a:hover { color: var(--accent); text-decoration: underline; }
+
+.row-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.visit-count {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0 6px;
+  white-space: nowrap;
+}
+
+.entry .url {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.row-delete {
+  border: none;
+  background: none;
+  color: var(--muted);
+  padding: 2px 6px;
+  visibility: hidden;
+}
+
+.results li:hover .row-delete { visibility: visible; }
+.row-delete:hover { color: var(--danger); }
+
+.empty { padding: 28px; text-align: center; color: var(--muted); }
+
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  margin: 16px 0 40px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* ------------------------------------------------------------------ cards */
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px;
+  margin-bottom: 16px;
+}
+
+.card h2 { font-size: 13px; margin: 0 0 10px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+.card p { margin: 0 0 10px; }
+
+.muted { color: var(--muted); }
+.small { font-size: 12px; }
+.ok { color: var(--ok); }
+.warn { color: var(--danger); }
+
+.button-row { display: flex; flex-wrap: wrap; gap: 8px; }
+
+details summary { cursor: pointer; font-size: 12px; color: var(--muted); margin-top: 8px; }
+details p { margin-top: 8px; }
+
+code {
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  background: var(--bg);
+  padding: 1px 4px;
+  border-radius: 4px;
+}
+
+.hosts { list-style: none; margin: 0; padding: 0; }
+
+.hosts li {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 4px 0;
+  font-size: 13px;
+  border-bottom: 1px solid var(--border);
+}
+
+.hosts li:last-child { border-bottom: none; }
+
+.hosts button {
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hosts button:hover { color: var(--accent); text-decoration: underline; }
+.hosts .count { color: var(--muted); font-variant-numeric: tabular-nums; }

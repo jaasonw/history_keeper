@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>History Keeper — Options</title>
+    <link rel="stylesheet" href="../dashboard/dashboard.css" />
+    <style>
+      .wrap { max-width: 720px; margin: 0 auto; padding: 24px; }
+      textarea {
+        width: 100%;
+        min-height: 180px;
+        padding: 10px 12px;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        background: var(--bg);
+        color: var(--text);
+        font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+        font-size: 13px;
+        resize: vertical;
+      }
+      .syntax { font-size: 12px; color: var(--muted); }
+      .syntax td { padding: 2px 14px 2px 0; vertical-align: top; }
+      input[type="text"] {
+        padding: 7px 10px;
+        border-radius: 7px;
+        border: 1px solid var(--border);
+        background: var(--bg);
+        color: var(--text);
+        font: inherit;
+        font-size: 13px;
+      }
+    </style>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="mark" aria-hidden="true"></span>
+        <h1>History Keeper — Options</h1>
+      </div>
+      <div class="topbar-meta">
+        <button id="theme" class="theme-toggle" title="Switch between system, light and dark">Theme</button>
+        <a class="link" href="../dashboard/index.html">Open dashboard</a>
+      </div>
+    </header>
+
+    <div class="wrap">
+      <section class="card">
+        <h2>Blocklist</h2>
+        <p class="muted small">
+          URLs matching any pattern below are never archived. Empty by default — nothing is
+          excluded until you add a line.
+        </p>
+        <textarea id="patterns" spellcheck="false" placeholder="mybank.example&#10;*.internal.corp&#10;/\/health\/records\//i"></textarea>
+        <table class="syntax">
+          <tr><td><code>example.com</code></td><td>that host and all subdomains</td></tr>
+          <tr><td><code>*.example.com</code></td><td>subdomains only</td></tr>
+          <tr><td><code>/pattern/flags</code></td><td>regular expression against the whole URL</td></tr>
+          <tr><td><code># note</code></td><td>comment</td></tr>
+        </table>
+        <div class="button-row" style="margin-top: 12px">
+          <button id="save" class="primary">Save</button>
+          <button id="purge">Purge matches already archived</button>
+        </div>
+        <p class="muted small" id="blocklist-status"></p>
+      </section>
+
+      <section class="card">
+        <h2>This device</h2>
+        <p class="muted small">
+          The device id tags every visit this machine captures and names its shard files in
+          the sync folder. The label is only for your own reference.
+        </p>
+        <div class="button-row">
+          <span class="badge" id="device-id">…</span>
+          <input type="text" id="device-label" placeholder="e.g. desktop, laptop" />
+          <button id="save-label">Save label</button>
+        </div>
+        <p class="muted small" id="label-status"></p>
+      </section>
+
+      <section class="card">
+        <h2>Maintenance</h2>
+        <p class="muted small" id="maintenance-detail">…</p>
+        <p class="muted small">
+          Both also repair titles. A page is archived the instant you navigate to it, which
+          is before the browser knows its title — on sites that swap pages without reloading,
+          like YouTube, well before. Re-reading the visit later fills the title in.
+          The re-scan reaches everything Chrome still remembers; the sweep only the last
+          20 minutes.
+        </p>
+        <div class="button-row">
+          <button id="sweep">Sweep Chrome history now</button>
+          <button id="rebackfill">Re-scan all Chrome history</button>
+        </div>
+        <p class="muted small" id="maintenance-status"></p>
+      </section>
+    </div>
+
+    <script type="module" src="options.js"></script>
+  </body>
+</html>
