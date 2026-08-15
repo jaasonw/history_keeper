@@ -10,13 +10,40 @@ No build step, no server, no dependencies at runtime.
 
 ## Install
 
-1. Open `chrome://extensions` and turn on **Developer mode**.
-2. Click **Load unpacked** and select this folder.
-3. The initial import starts immediately. Progress shows in the popup and the dashboard.
+Chrome 116 or newer. Not on the Chrome Web Store — it loads unpacked, which takes about a
+minute.
 
-Chrome 116 or newer. The toolbar button opens the popup — counters, backfill progress, and
-links to the dashboard (search, sync, backup) and options (blocklist, device label,
-maintenance).
+1. Get the source, either with git:
+
+   ```bash
+   git clone https://github.com/jaasonw/history_keeper.git
+   ```
+
+   or by downloading
+   [the ZIP](https://github.com/jaasonw/history_keeper/archive/refs/heads/main.zip) and
+   unpacking it somewhere permanent — Chrome loads the extension from this folder every
+   time it starts, so moving or deleting it afterwards breaks the extension.
+
+2. Open `chrome://extensions` and turn on **Developer mode** (top right).
+3. Click **Load unpacked** and select the `history_keeper` folder — the one containing
+   `manifest.json`.
+4. The initial import starts immediately. Progress shows in the popup and the dashboard.
+
+There is nothing to build and no dependency to install; `npm install` is needed only to
+run the tests.
+
+The toolbar button opens the popup — counters, backfill progress, and links to the
+dashboard (search, sync, backup) and options (blocklist, device label, maintenance). Pin
+it from the puzzle-piece menu if you want it always visible.
+
+### Updating
+
+```bash
+git pull
+```
+
+Then hit the reload icon on the extension's card in `chrome://extensions`. Your archive
+lives in IndexedDB and survives the reload.
 
 ## How capture works
 
