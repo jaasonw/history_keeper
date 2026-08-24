@@ -1,5 +1,5 @@
 import { getMeta, setMeta, countStore } from '../lib/db.js';
-import { getPatterns, setPatterns, purgeMatching } from '../lib/blocklist.js';
+import { getPatterns, setPatterns, purgeMatching, compile } from '../lib/blocklist.js';
 import { initTheme, mountThemeToggle } from '../lib/theme.js';
 
 const $ = (id) => document.getElementById(id);
@@ -27,8 +27,17 @@ async function load() {
 $('save').addEventListener('click', async () => {
   const patterns = $('patterns').value.split('\n').map((line) => line.trim()).filter(Boolean);
   await setPatterns(patterns);
-  $('blocklist-status').textContent =
-    `Saved ${patterns.length} pattern${patterns.length === 1 ? '' : 's'}. New visits are filtered immediately.`;
+
+  // A pattern with a scheme, path, or port (https://x.com, x.com/page) can never equal
+  // hostOf()'s bare hostname, so compile() silently drops it — tell the user, rather
+  // than reporting a count that includes patterns doing nothing.
+  const working = compile(patterns).length;
+  const nonComment = patterns.filter((p) => !p.startsWith('#')).length;
+  const skipped = nonComment - working;
+  $('blocklist-status').textContent = skipped
+    ? `Saved ${patterns.length} pattern${patterns.length === 1 ? '' : 's'} — ` +
+      `${skipped} will never match (remove any scheme, path, or port) and were skipped.`
+    : `Saved ${patterns.length} pattern${patterns.length === 1 ? '' : 's'}. New visits are filtered immediately.`;
 });
 
 $('purge').addEventListener('click', async () => {

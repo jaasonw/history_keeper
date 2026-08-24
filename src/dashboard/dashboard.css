@@ -8,11 +8,13 @@
   --surface: #eff1f5;     /* base */
   --border: #ccd0da;      /* surface0 */
   --text: #4c4f69;        /* text */
-  --muted: #6c6f85;       /* subtext0 */
+  --muted: #5c5f77;       /* subtext1 — subtext0 (#6c6f85) is only 4.37:1 on base, below
+                              WCAG AA's 4.5:1 for the 12-13px text it's used at */
   --accent: #8839ef;      /* mauve */
   --accent-soft: #e3dbf4; /* mauve at 12% over base */
   --accent-ink: #eff1f5;  /* base — legible on the accent fill */
-  --ok: #40a02b;          /* green */
+  --ok: #307820;          /* green, darkened from #40a02b (2.96:1 — fails even large-text
+                              AA) to 4.84:1 while staying in the same hue family */
   --danger: #d20f39;      /* red */
   --radius: 10px;
   color-scheme: light;
@@ -60,6 +62,11 @@ body {
   background: var(--bg);
   color: var(--text);
   font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 /* ---------------------------------------------------------------- top bar */
@@ -314,7 +321,8 @@ button.primary {
   visibility: hidden;
 }
 
-.results li:hover .row-delete { visibility: visible; }
+.results li:hover .row-delete,
+.results li:focus-within .row-delete { visibility: visible; }
 .row-delete:hover { color: var(--danger); }
 
 .empty { padding: 28px; text-align: center; color: var(--muted); }

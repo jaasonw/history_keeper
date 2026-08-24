@@ -33,6 +33,7 @@ const SNAPSHOT_ALARM = 'snapshot';
 
 const SWEEP_PERIOD_MIN = 15;
 const SWEEP_OVERLAP_MS = 5 * 60 * 1000;
+const SWEEP_MAX_RESULTS = 10_000;
 const SNAPSHOT_PERIOD_MIN = 60 * 24 * 7;
 
 const BACKFILL_CHUNK = 250;
@@ -152,7 +153,7 @@ async function sweep() {
     text: '',
     startTime: since,
     endTime: now,
-    maxResults: 10_000,
+    maxResults: SWEEP_MAX_RESULTS,
   });
 
   const records = [];
@@ -181,7 +182,13 @@ async function sweep() {
   }
 
   const { added, titled } = await putVisits(records, { assignLocalSeq: true });
-  await setManyMeta({ lastSweepTime: now, lastSweepAdded: added });
+  // chrome.history.search returns newest-first, so hitting maxResults means the older
+  // part of [since, now) was never actually searched. Advancing lastSweepTime to `now`
+  // would mark that unsearched stretch as swept and it would never be retried — instead
+  // stop at the oldest item we did see, and the next sweep picks up right behind it.
+  const truncated = items.length >= SWEEP_MAX_RESULTS;
+  const nextSweepTime = truncated ? Math.min(...items.map((item) => item.lastVisitTime)) : now;
+  await setManyMeta({ lastSweepTime: nextSweepTime, lastSweepAdded: added });
   return { added, titled };
 }
 

@@ -12,6 +12,19 @@ export const STORAGE_KEY = 'blocklist';
 
 let cache = null;
 
+/**
+ * Punycode-encode and lowercase a host the way hostOf() (record.js) does, so a pattern
+ * typed as Unicode or mixed case still matches the ASCII form every captured host is
+ * compared in.
+ */
+function normaliseHost(raw) {
+  try {
+    return new URL(`http://${raw}`).hostname;
+  } catch {
+    return raw.toLowerCase();
+  }
+}
+
 export function compile(patterns) {
   const compiled = [];
   for (const raw of patterns) {
@@ -29,14 +42,19 @@ export function compile(patterns) {
       continue;
     }
 
-    if (pattern.startsWith('*.')) {
-      const suffix = pattern.slice(1).toLowerCase(); // ".example.com"
-      compiled.push({ raw, test: (_url, host) => host.endsWith(suffix) });
-      continue;
-    }
+    const wildcard = pattern.startsWith('*.');
+    const bare = wildcard ? pattern.slice(2) : pattern;
+    // hostOf() always returns a bare hostname — no scheme, path, query or port. A
+    // pattern carrying any of those can never equal it, so it would silently compile
+    // into a rule that never fires. Skip it instead of pretending it works.
+    if (/[/\s?#]/.test(bare) || bare.includes('://') || /:\d/.test(bare)) continue;
 
-    const domain = pattern.toLowerCase();
-    compiled.push({ raw, test: (_url, host) => host === domain || host.endsWith(`.${domain}`) });
+    const host = normaliseHost(bare);
+    if (wildcard) {
+      compiled.push({ raw, test: (_url, h) => h.endsWith(`.${host}`) });
+    } else {
+      compiled.push({ raw, test: (_url, h) => h === host || h.endsWith(`.${host}`) });
+    }
   }
   return compiled;
 }

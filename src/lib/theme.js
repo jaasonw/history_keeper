@@ -52,14 +52,21 @@ export async function initTheme() {
   return theme;
 }
 
+// The button's own text ("System"/"Light"/"Dark") names the current state but not the
+// action, which a sighted user infers from context a screen reader user can't.
+function paintButton(button, theme) {
+  button.textContent = LABELS[theme];
+  button.setAttribute('aria-label', `Theme: ${LABELS[theme]}. Click to change.`);
+}
+
 /** Wire a button that cycles system → Latte → Macchiato. */
 export async function mountThemeToggle(button) {
   let current = await getTheme();
-  button.textContent = LABELS[current];
+  paintButton(button, current);
 
   button.addEventListener('click', async () => {
     current = THEMES[(THEMES.indexOf(current) + 1) % THEMES.length];
-    button.textContent = LABELS[current];
+    paintButton(button, current);
     apply(current);
     await setTheme(current);
   });
@@ -69,6 +76,6 @@ export async function mountThemeToggle(button) {
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== 'local' || !changes[KEY]) return;
     current = THEMES.includes(changes[KEY].newValue) ? changes[KEY].newValue : 'auto';
-    button.textContent = LABELS[current];
+    paintButton(button, current);
   });
 }

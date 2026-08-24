@@ -18,6 +18,11 @@ export function openDb() {
       req.onerror = () => reject(req.error);
       req.onblocked = () => reject(new Error('IndexedDB upgrade blocked by another tab'));
     });
+    // A transient failure (onblocked, a one-off onerror) must not wedge every future
+    // call behind the same rejected promise for the rest of this context's lifetime.
+    dbPromise.catch(() => {
+      dbPromise = null;
+    });
   }
   return dbPromise;
 }
@@ -173,7 +178,11 @@ export async function putVisits(records, { assignLocalSeq = false } = {}) {
     }
 
     const row = { ...rec };
+    // A shard file can carry a localSeq field (a hand-edited or corrupted line) even
+    // though this import didn't assign one — keeping it would make this device believe
+    // it already exported someone else's sequence number and stop exporting its own.
     if (assignLocalSeq) row.localSeq = ++seq;
+    else delete row.localSeq;
     visits.put(row);
     added++;
 
@@ -186,6 +195,11 @@ export async function putVisits(records, { assignLocalSeq = false } = {}) {
       if (rec.visitTime >= page.lastSeen) {
         page.lastSeen = rec.visitTime;
         if (rec.title) page.title = rec.title;
+      } else if (rec.title && !page.title) {
+        // The newest-known visit still has no title, but this older one — arriving late
+        // from a backfill or another device's shard — does. Take it rather than leaving
+        // the page permanently blank until something newer happens to carry a title.
+        page.title = rec.title;
       }
       pages.put(page);
     } else {
@@ -267,8 +281,24 @@ export async function deleteVisit(id) {
   const page = await reqToPromise(pages.get(visit.urlHash));
   if (page) {
     page.visitCount -= 1;
-    if (page.visitCount <= 0) pages.delete(visit.urlHash);
-    else pages.put(page);
+    if (page.visitCount <= 0) {
+      pages.delete(visit.urlHash);
+    } else {
+      // Only recompute if the deleted visit could actually have set one of these — the
+      // common case (deleting some visit in the middle of a page's history) never needs
+      // the extra scan.
+      if (visit.visitTime === page.firstSeen || visit.visitTime === page.lastSeen) {
+        let min = Infinity;
+        let max = -Infinity;
+        await cursorEach(visits.index('urlHash'), IDBKeyRange.only(visit.urlHash), 'next', (v) => {
+          if (v.visitTime < min) min = v.visitTime;
+          if (v.visitTime > max) max = v.visitTime;
+        });
+        page.firstSeen = min;
+        page.lastSeen = max;
+      }
+      pages.put(page);
+    }
   }
   await txDone(tx);
   return true;
@@ -281,16 +311,9 @@ export async function deletePage(urlHash) {
   const index = tx.objectStore('visits').index('urlHash');
   let removed = 0;
 
-  await new Promise((resolve, reject) => {
-    const req = index.openCursor(IDBKeyRange.only(urlHash));
-    req.onsuccess = () => {
-      const cursor = req.result;
-      if (!cursor) return resolve();
-      cursor.delete();
-      removed++;
-      cursor.continue();
-    };
-    req.onerror = () => reject(req.error);
+  await cursorEach(index, IDBKeyRange.only(urlHash), 'next', (_visit, cursor) => {
+    cursor.delete();
+    removed++;
   });
 
   tx.objectStore('pages').delete(urlHash);

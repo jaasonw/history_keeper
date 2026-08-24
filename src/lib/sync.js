@@ -9,7 +9,8 @@
 // in service workers.
 
 import { openDb, reqToPromise, txDone, getMeta, setMeta, setManyMeta, putVisits, cursorEach } from './db.js';
-import { isValidRecord, forExport } from './record.js';
+import { isValidRecord, urlHashMatches, forExport } from './record.js';
+import { isBlocked } from './blocklist.js';
 
 const FOLDER_NAME = 'history-keeper';
 const HANDLE_KEY = 'syncDirHandle';
@@ -216,7 +217,13 @@ export async function importAll(handle, onProgress) {
       if (!line.trim()) continue;
       try {
         const rec = JSON.parse(line);
-        if (isValidRecord(rec)) records.push(rec);
+        // isBlocked and urlHashMatches apply here because this is the only place a
+        // peer's data crosses into this device's archive — the three capture paths in
+        // the service worker already filter through isBlocked before a record exists.
+        if (!isValidRecord(rec)) continue;
+        if (!(await urlHashMatches(rec))) continue;
+        if (await isBlocked(rec.url, rec.host)) continue;
+        records.push(rec);
       } catch {
         // Skip corrupt lines rather than abandoning the file.
       }
@@ -270,7 +277,10 @@ export async function importFromFile(file, onProgress) {
     if (!line.trim()) continue;
     try {
       const rec = JSON.parse(line);
-      if (isValidRecord(rec)) records.push(rec);
+      if (!isValidRecord(rec)) continue;
+      if (!(await urlHashMatches(rec))) continue;
+      if (await isBlocked(rec.url, rec.host)) continue;
+      records.push(rec);
     } catch {
       /* skip */
     }

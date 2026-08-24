@@ -51,6 +51,7 @@
           URLs matching any pattern below are never archived. Empty by default — nothing is
           excluded until you add a line.
         </p>
+        <label for="patterns" class="muted small">Patterns, one per line</label>
         <textarea id="patterns" spellcheck="false" placeholder="mybank.example&#10;*.internal.corp&#10;/\/health\/records\//i"></textarea>
         <table class="syntax">
           <tr><td><code>example.com</code></td><td>that host and all subdomains</td></tr>
@@ -73,6 +74,7 @@
         </p>
         <div class="button-row">
           <span class="badge" id="device-id">…</span>
+          <label for="device-label" class="muted small">Label</label>
           <input type="text" id="device-label" placeholder="e.g. desktop, laptop" />
           <button id="save-label">Save label</button>
         </div>

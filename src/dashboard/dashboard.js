@@ -262,12 +262,19 @@ function renderRows(rows, sort) {
       sort === 'relevance'
         ? 'Delete this page and all its visits from the archive'
         : 'Delete this visit from the archive';
+    // The visible label is '✕', which screen readers don't announce usefully — reuse
+    // the descriptive title text as the accessible name instead of writing a second one.
+    remove.setAttribute('aria-label', remove.title);
     remove.addEventListener('click', async () => {
-      if (sort === 'relevance') await deletePage(row.urlHash);
-      else await deleteVisit(row.id);
-      invalidatePageCache();
-      li.remove();
-      renderStats();
+      try {
+        if (sort === 'relevance') await deletePage(row.urlHash);
+        else await deleteVisit(row.id);
+        invalidatePageCache();
+        li.remove();
+        await renderStats();
+      } catch (err) {
+        banner('init-error', `Delete failed: ${err.message}`, { kind: 'error' });
+      }
     });
 
     actions.append(remove);
@@ -323,13 +330,21 @@ async function refreshSyncPanel() {
   $('sync-detail').textContent = `Last sync ${formatAgo(lastSync)} · last export ${formatAgo(lastExport)}`;
 }
 
+let syncInFlight = false;
+
 async function doSync({ interactive = false } = {}) {
+  // The 5-minute timer only checks state.dirUsable, not the button's disabled state, so
+  // it can fire while a manual sync (or another timer tick) is still running. Two
+  // concurrent File System Access writes to the same shard silently clobber each
+  // other — this guard is what makes doSync itself safe to call re-entrantly.
+  if (syncInFlight) return;
   if (!state.dirHandle) return;
   if (!(await verifyPermission(state.dirHandle, { request: interactive }))) {
     await refreshSyncPanel();
     return;
   }
 
+  syncInFlight = true;
   $('sync-now').disabled = true;
   $('sync-status').textContent = 'Syncing…';
   $('sync-status').className = 'muted';
@@ -348,6 +363,7 @@ async function doSync({ interactive = false } = {}) {
     $('sync-status').textContent = `Sync failed: ${err.message}`;
     $('sync-status').className = 'warn';
   } finally {
+    syncInFlight = false;
     $('sync-now').disabled = !state.dirUsable;
   }
 }
@@ -381,17 +397,21 @@ async function refreshSnapshotBanner() {
 
 async function downloadSnapshot() {
   $('backup-detail').textContent = 'Building snapshot…';
-  const blob = await buildSnapshot();
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `history-keeper-${new Date().toISOString().slice(0, 10)}.ndjson`;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  try {
+    const blob = await buildSnapshot();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `history-keeper-${new Date().toISOString().slice(0, 10)}.ndjson`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
 
-  await setMeta('snapshotDue', false);
-  clearBanner('snapshot-banner');
-  $('backup-detail').textContent = `Snapshot written (${(blob.size / 1048576).toFixed(1)} MB).`;
+    await setMeta('snapshotDue', false);
+    clearBanner('snapshot-banner');
+    $('backup-detail').textContent = `Snapshot written (${(blob.size / 1048576).toFixed(1)} MB).`;
+  } catch (err) {
+    $('backup-detail').textContent = `Snapshot failed: ${err.message}`;
+  }
 }
 
 async function handleImport(file) {

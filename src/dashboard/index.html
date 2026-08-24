@@ -37,6 +37,7 @@
           <input
             type="search"
             id="q"
+            aria-label="Search titles and URLs — fuzzy, as you type"
             placeholder="Search titles and URLs — fuzzy, as you type…"
             autocomplete="off"
             autofocus
@@ -56,7 +57,7 @@
           </div>
         </form>
 
-        <p class="result-summary" id="result-summary">Loading…</p>
+        <p class="result-summary" id="result-summary" aria-live="polite" aria-atomic="true">Loading…</p>
 
         <ol class="results" id="results"></ol>
 

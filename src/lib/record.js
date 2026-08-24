@@ -14,7 +14,11 @@ export async function urlHash(url) {
 
 export function hostOf(url) {
   try {
-    return new URL(url).hostname;
+    const hostname = new URL(url).hostname;
+    // A trailing-dot FQDN (https://bank.example./x) is a real, navigable URL, but it
+    // would otherwise never match a blocklist pattern for "bank.example" — strip it here
+    // so every consumer (capture, blocklist matching, the page rollup) sees one host.
+    return hostname.endsWith('.') ? hostname.slice(0, -1) : hostname;
   } catch {
     return '';
   }
@@ -65,10 +69,26 @@ export function isValidRecord(rec) {
     rec !== null &&
     typeof rec.id === 'string' &&
     typeof rec.url === 'string' &&
+    isArchivable(rec.url) &&
     typeof rec.urlHash === 'string' &&
-    Number.isFinite(rec.visitTime) &&
+    typeof rec.title === 'string' &&
+    rec.title.length <= 500 &&
+    typeof rec.host === 'string' &&
+    Number.isInteger(rec.visitTime) &&
     rec.id === visitId(rec.urlHash, rec.visitTime)
   );
+}
+
+/**
+ * Confirms urlHash was actually derived from url. isValidRecord alone only checks that
+ * a record's own fields are internally consistent (id matches urlHash+visitTime); a
+ * shard line can still claim any hash for any URL, which would land it in the wrong
+ * page's rollup and make it invisible to blocklist purge (which scans by URL). Async,
+ * so it is checked separately from isValidRecord at the actual import boundary rather
+ * than folded into that widely-used synchronous check.
+ */
+export async function urlHashMatches(rec) {
+  return rec.urlHash === (await urlHash(rec.url));
 }
 
 /** Strip local-only fields before a record is written to a shard file. */
