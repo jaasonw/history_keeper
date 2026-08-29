@@ -15,18 +15,15 @@ network access at all.
 
 ## Features
 
-- **Unlimited\* History** Visits are recorded as they happen and never expire. Clearing
-  history in Chrome doesn't touch it.
-- **Search that tolerates bad memory.** Type roughly what you remember — partial words,
+- **Unlimited\* History** Visits are recorded as they happen and never expire. Only limited by disk space
+- **Fuzzy Search** Type roughly what you remember — partial words,
   wrong order, typos — and results appear as you type. `gthb` finds github.com; `pythom`
   finds python.
-- **One history across your machines.** Point each computer at the same Dropbox / Google
-  Drive / OneDrive folder and your desktop and laptop archives merge into one. No account,
-  no sync service — just files in a folder you already have.
-- **Stats.** How many pages, how far back your archive reaches, which sites you actually
-  spend your time on.
-- **A blocklist.** Sites you'd rather not have on record are never written down, and can
-  be purged retroactively if you add them later.
+- **Sync across machines** Automatically exports history entries to a folder that can be synced (Google Drive / Dropbox / OneDrive / Syncthing / etc). Not bound to any account sync service
+- **Stats dashboard** How many pages, how far back your archive reaches, which sites you actually spend your time on.
+- **Blocklist.** Sites you'd rather not have on record are never written down, and can be purged retroactively if you add them later.
+
+\* Storage has no effective cap. Search and the single-file snapshot will start to degrade past a million pages, ~15 years of normal browsing
 
 ## Install
 
@@ -109,11 +106,8 @@ Worth knowing:
 
 - **Incognito is never recorded.** Those visits don't reach Chrome's history at all.
 - **Page contents aren't saved** — only the URL, title, time, and how you got there.
-- **The archive isn't encrypted**, on disk or in the cloud folder. If someone can read
-  your files, they can read your history.
-- **Deleting history in Chrome doesn't delete it here.** That's the whole point, but it
-  does mean "clear browsing data" no longer clears everything. Use the ✕ on a dashboard
-  row, or a blocklist pattern plus purge.
+- **The archive isn't encrypted**, on disk or in the cloud folder. If someone can read your files, they can read your history.
+- **Deleting history in Chrome doesn't delete it here.** This is a feature not a bug, long term archival storage of history that outlasts the native browser history. It does mean "clear browsing data" no longer clears everything. Use the ✕ on a dashboard row, or a blocklist pattern plus purge.
 
 ## Contributing
 
