@@ -38,6 +38,26 @@ const state = {
 
 // ------------------------------------------------------------------ utilities
 
+/**
+ * Chrome's own favicon cache, which already holds an icon for anything the browser has
+ * loaded — no fetch, no storage, and it covers history archived long before thumbnails
+ * existed. Chrome serves a neutral globe for a URL it has no icon for.
+ */
+function faviconUrl(url) {
+  return `${chrome.runtime.getURL('/_favicon/')}?pageUrl=${encodeURIComponent(url)}&size=32`;
+}
+
+/**
+ * A 16px broken-image glyph reads as a bug rather than as "no icon", and _favicon/ does
+ * fail wholesale until the extension is reloaded after the manifest gained the
+ * permission. Collapsing the element leaves the row exactly as it was before icons.
+ */
+function hideIfBroken(img) {
+  img.addEventListener('error', () => {
+    img.style.visibility = 'hidden';
+  });
+}
+
 function formatWhen(ms) {
   const d = new Date(ms);
   return `${d.toLocaleDateString(undefined, { year: '2-digit', month: 'short', day: '2-digit' })} ${d
@@ -127,7 +147,20 @@ async function renderStats() {
   for (const { host, count } of s.topHosts) {
     const li = document.createElement('li');
     const button = document.createElement('button');
-    button.textContent = host || '(no host)';
+    // Same icon as the result rows, from the same cache — a host has no single page URL,
+    // so its own root stands in, which is the page Chrome caches an origin's icon under.
+    if (host) {
+      const icon = document.createElement('img');
+      icon.className = 'thumb';
+      icon.src = faviconUrl(`https://${host}/`);
+      icon.alt = '';
+      icon.loading = 'lazy';
+      hideIfBroken(icon);
+      button.append(icon);
+    }
+    const label = document.createElement('span');
+    label.textContent = host || '(no host)';
+    button.append(label);
     button.title = `Filter to ${host}`;
     button.addEventListener('click', () => {
       $('host').value = host;
@@ -207,6 +240,28 @@ function scheduleSearch() {
   debounceTimer = setTimeout(() => runSearch(0), TYPING_DEBOUNCE_MS);
 }
 
+/**
+ * Write `parts` into `node` as text nodes and <mark>s, falling back to `plain`.
+ *
+ * Node by node, never innerHTML: every character here is an archived title, URL, or page
+ * body, and none of it has been anywhere near a sanitiser.
+ */
+function appendParts(node, parts, plain) {
+  if (!parts?.length) {
+    node.textContent = plain;
+    return;
+  }
+  for (const part of parts) {
+    if (part.hit) {
+      const hit = document.createElement('mark');
+      hit.textContent = part.text;
+      node.append(hit);
+    } else {
+      node.append(document.createTextNode(part.text));
+    }
+  }
+}
+
 function renderRows(rows, sort) {
   const list = $('results');
   list.replaceChildren();
@@ -223,6 +278,16 @@ function renderRows(rows, sort) {
   for (const row of rows) {
     const li = document.createElement('li');
 
+    // Always the site's favicon, never the page's stored thumbnail: one icon per site
+    // is what makes a long list scannable, and a per-page preview image made identical
+    // rows look unrelated.
+    const thumb = document.createElement('img');
+    thumb.className = 'thumb';
+    thumb.src = faviconUrl(row.url);
+    thumb.alt = '';
+    thumb.loading = 'lazy';
+    hideIfBroken(thumb);
+
     const when = document.createElement('span');
     when.className = 'when';
     when.textContent = formatWhen(row.visitTime);
@@ -233,12 +298,21 @@ function renderRows(rows, sort) {
     link.href = row.url;
     link.target = '_blank';
     link.rel = 'noreferrer noopener';
-    link.textContent = row.title || row.url;
+    appendParts(link, row.titleParts, row.title || row.url);
     link.title = row.url;
     const url = document.createElement('span');
     url.className = 'url';
     url.textContent = row.url;
     entry.append(link, url);
+
+    // Only set when the page matched on its stored text rather than its title or address,
+    // so its presence is the answer to "why is this here?".
+    if (row.snippet?.length) {
+      const snippet = document.createElement('span');
+      snippet.className = 'snippet';
+      appendParts(snippet, row.snippet, '');
+      entry.append(snippet);
+    }
 
     // The count and the ✕ share the trailing column: the delete button reserves its slot
     // even while hidden, so the badge does not shift when the row is hovered.
@@ -278,7 +352,7 @@ function renderRows(rows, sort) {
     });
 
     actions.append(remove);
-    li.append(when, entry, actions);
+    li.append(when, thumb, entry, actions);
     list.append(li);
   }
 }
@@ -355,8 +429,11 @@ async function doSync({ interactive = false } = {}) {
     await refreshSyncPanel();
     $('sync-detail').textContent =
       `Exported ${nf.format(result.exported)} · imported ${nf.format(result.added)} new ` +
-      `from ${result.filesRead} file${result.filesRead === 1 ? '' : 's'}`;
-    if (result.added || result.titled) invalidatePageCache();
+      `from ${result.filesRead} file${result.filesRead === 1 ? '' : 's'}` +
+      (result.contentExported || result.contentImported
+        ? ` · page text ${nf.format(result.contentExported)} out, ${nf.format(result.contentImported)} in`
+        : '');
+    if (result.added || result.titled || result.contentImported) invalidatePageCache();
     await renderStats();
     await runSearch(state.page);
   } catch (err) {
@@ -388,7 +465,7 @@ async function refreshBackfillBanner() {
 
 async function refreshSnapshotBanner() {
   if (!(await getMeta('snapshotDue', false))) return;
-  banner('snapshot-banner', 'Weekly backup snapshot is due.', {
+  banner('snapshot-banner', 'Backup snapshot is due.', {
     action: { label: 'Download now', onClick: () => downloadSnapshot() },
   });
 }

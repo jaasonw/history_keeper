@@ -20,8 +20,11 @@
         resize: vertical;
       }
       .syntax { font-size: 12px; color: var(--muted); }
+      .switch { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13px; }
+      .switch input { accent-color: var(--accent); width: 15px; height: 15px; cursor: pointer; }
       .syntax td { padding: 2px 14px 2px 0; vertical-align: top; }
-      input[type="text"] {
+      input[type="text"],
+      input[type="number"] {
         padding: 7px 10px;
         border-radius: 7px;
         border: 1px solid var(--border);
@@ -67,6 +70,45 @@
       </section>
 
       <section class="card">
+        <h2>Page text</h2>
+        <p class="muted small">
+          Off by default. When on, the text of each page you visit is stored alongside the
+          visit, so you can find a page by something you read on it rather than only by its
+          title or address. Text is compressed, kept on this device, and never sent
+          anywhere — the extension makes no network requests either way.
+        </p>
+        <p class="muted small">
+          Turning this on asks Chrome for permission to read the pages you visit, which is
+          what makes reading their text possible. Blocklisted sites are skipped, and you can
+          revoke the permission at any time from
+          <code>chrome://extensions</code>.
+        </p>
+        <div class="button-row">
+          <label class="switch">
+            <input type="checkbox" id="content-toggle" />
+            <span>Store the text of pages I visit</span>
+          </label>
+        </div>
+        <p class="muted small" id="content-detail">…</p>
+        <div class="button-row">
+          <label class="switch">
+            <input type="checkbox" id="content-sync-toggle" />
+            <span>Also sync page text between my devices</span>
+          </label>
+        </div>
+        <p class="muted small">
+          Text rides its own files in the sync folder, separate from the visit shards and
+          skipped entirely by older versions of this extension. Compressed it is roughly
+          2.7&nbsp;KB per page — about 54&nbsp;MB for 20,000 pages — against a few hundred
+          KB for the visits alone, so leave it off if the folder is somewhere tight.
+        </p>
+        <div class="button-row">
+          <button id="forget-content">Forget all stored page text</button>
+        </div>
+        <p class="muted small" id="content-status"></p>
+      </section>
+
+      <section class="card">
         <h2>This device</h2>
         <p class="muted small">
           The device id tags every visit this machine captures and names its shard files in
@@ -79,6 +121,21 @@
           <button id="save-label">Save label</button>
         </div>
         <p class="muted small" id="label-status"></p>
+      </section>
+
+      <section class="card">
+        <h2>Backup reminder</h2>
+        <p class="muted small">
+          The dashboard and popup remind you to download a snapshot on this cadence.
+          Quarterly by default; the reminder is only a nudge — nothing is deleted if you
+          ignore it, and downloading a snapshot clears it until the next one is due.
+        </p>
+        <div class="button-row">
+          <label for="snapshot-days" class="muted small">Remind me every</label>
+          <input type="number" id="snapshot-days" min="1" max="365" step="1" style="width: 5.5em" />
+          <span class="muted small">days</span>
+        </div>
+        <p class="muted small" id="snapshot-status"></p>
       </section>
 
       <section class="card">
