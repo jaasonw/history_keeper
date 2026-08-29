@@ -8,7 +8,13 @@
     "history",
     "storage",
     "unlimitedStorage",
-    "alarms"
+    "alarms",
+    "scripting",
+    "favicon"
+  ],
+  "optional_host_permissions": [
+    "http://*/*",
+    "https://*/*"
   ],
   "background": {
     "service_worker": "src/background/service-worker.js",

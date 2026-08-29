@@ -69,7 +69,7 @@ async function load() {
     bar.value = done;
     bar.hidden = false;
   } else if (await getMeta('snapshotDue', false)) {
-    $('note').textContent = 'Weekly backup snapshot is due — open the dashboard to save it.';
+    $('note').textContent = 'Backup snapshot is due — open the dashboard to save it.';
   }
 }
 

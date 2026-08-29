@@ -257,7 +257,7 @@ button.primary {
 
 .results li {
   display: grid;
-  grid-template-columns: 150px minmax(0, 1fr) auto;
+  grid-template-columns: 150px 16px minmax(0, 1fr) auto;
   gap: 14px;
   align-items: baseline;
   padding: 9px 14px;
@@ -272,6 +272,17 @@ button.primary {
   font-size: 12px;
   color: var(--muted);
   white-space: nowrap;
+}
+
+/* Favicon-sized and centred against the whole row, the way Chrome's own history reads.
+   Every row has one — a stored page thumbnail where there is one, Chrome's cached
+   favicon otherwise. */
+.thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  object-fit: cover;
+  align-self: center;
 }
 
 .entry { min-width: 0; }
@@ -311,6 +322,36 @@ button.primary {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.entry .snippet {
+  /* Wraps to three lines rather than one clipped one: an excerpt is only useful if
+     enough of the sentence around the match survives to read. */
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--muted);
+  margin-top: 4px;
+}
+
+/* A filled chip rather than a tint: at 12px inside three lines of muted body text, a
+   soft background was not carrying. Both tokens are defined in all three theme blocks,
+   and accent-ink exists precisely to stay legible on the accent fill. */
+.entry mark {
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 700;
+  border-radius: 3px;
+  padding: 0 3px;
+}
+
+/* The title is a link, so its own colour would otherwise win over the chip's ink. */
+.entry a mark {
+  color: var(--accent-ink);
+  text-decoration: none;
 }
 
 .row-delete {
@@ -355,7 +396,7 @@ button.primary {
 .ok { color: var(--ok); }
 .warn { color: var(--danger); }
 
-.button-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.button-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 
 details summary { cursor: pointer; font-size: 12px; color: var(--muted); margin-top: 8px; }
 details p { margin-top: 8px; }
@@ -381,14 +422,23 @@ code {
 .hosts li:last-child { border-bottom: none; }
 
 .hosts button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
   border: none;
   background: none;
   padding: 0;
   color: var(--text);
+}
+
+.hosts button span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+.hosts .thumb { flex: none; }
 
 .hosts button:hover { color: var(--accent); text-decoration: underline; }
 .hosts .count { color: var(--muted); font-variant-numeric: tabular-nums; }

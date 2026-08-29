@@ -4,9 +4,12 @@ A Manifest V3 Chrome extension that mirrors `chrome.history` into its own Indexe
 so visits survive Chrome's 90-day expiry, and merges archives across machines through a
 cloud-synced folder of append-only NDJSON files.
 
+Optionally — off until the user asks for it — it also stores the text of pages visited, in
+a second database, and searches that alongside titles and URLs.
+
 **Before any non-trivial change, read [ARCHITECTURE.md](ARCHITECTURE.md)** — data model,
 capture paths, sync protocol and its trust boundary, search scoring, and per-task recipes.
-Its **§11 lists seven things that look like bugs and are deliberate**; check it before
+Its **§11 lists ten things that look like bugs and are deliberate**; check it before
 "fixing" one.
 
 ## Hard rules
@@ -14,10 +17,19 @@ Its **§11 lists seven things that look like bugs and are deliberate**; check it
 - **No build step.** `src/` is loaded directly by Chrome as ES modules (`"type": "module"`
   in both `manifest.json` and `package.json`). No bundler, transpiler, framework, or
   runtime dependency — ever. `fake-indexeddb` is dev-only, for tests.
-- **No network requests and no host permissions.** Adding either breaks the privacy claim
-  the README makes. Permissions are `history`, `storage`, `unlimitedStorage`, `alarms`.
+- **No network requests, ever.** That claim in the README is unconditional and must stay
+  so. Permissions are `history`, `storage`, `unlimitedStorage`, `alarms`, `scripting`.
+- **No host permission in `permissions`.** The page-text origins live in
+  `optional_host_permissions`, so they are absent from the install prompt and an existing
+  install gains nothing on update. They are `http://*/*` and `https://*/*`, exported as
+  `TEXT_ORIGINS` from `content.js` and never spelled out twice — **`<all_urls>` does not
+  work here**: Chrome rejects that literal and the request fails with "Only permissions
+  specified in the manifest may be requested". It is requested from the options page, only when the
+  user turns page text on, and only inside that click — `chrome.permissions.request`
+  requires the user gesture. Nothing may read it as granted; check `permissions.contains`.
 - **`src/lib/db.js` never touches `chrome.*`.** Every context imports it, and the tests
-  run it under Node.
+  run it under Node. `src/lib/content.js` is stricter — pure text helpers importing
+  nothing — which is what lets `db.js` depend on it without a cycle.
 - Comments explain *why*, not what. Match the existing density.
 - British spelling in identifiers (`normaliseTime`, `tokenise`).
 
@@ -60,11 +72,27 @@ Break one and duplicates or merge conflicts follow. Each has a test.
    `<deviceId>-<YYYY-MM>.ndjson` and reads the rest. That is what makes this safe on top
    of file-sync clients, which handle concurrent edits badly.
 5. **`pages` stays consistent with `visits`.** `putVisits`/`deleteVisit`/`deletePage`
-   maintain the rollup; a new write path must maintain it too.
+   maintain the rollup; a new write path must maintain it too. Page text is part of this:
+   both removal paths cascade into the `content` database — `deletePage` *before* it
+   touches the archive, because it is the path the blocklist purge takes and a purge that
+   dropped the history but kept the text is worse than one that can be retried;
+   `deleteVisit` after, and only where the page row itself goes.
 6. **Import stops at the last complete line.** A cloud client mid-download leaves a
-   trailing partial line; the byte offset in `imports` may only advance past `\n`.
+   trailing partial line; the byte offset in `imports` may only advance past `\n`. This is
+   why synced page text is base64 inside its JSON line and not raw gzip bytes: gzip output
+   contains `0x0A` freely and would break the scan.
 7. **Untrusted records are validated before they are written** — `isValidRecord` →
-   `urlHashMatches` → `isBlocked`, at every import boundary.
+   `urlHashMatches` → `isBlocked`, at every import boundary. `mergeContentLine` asks the
+   same three questions plus a size bound, because unlike a visit line it decompresses.
+8. **Only locally captured page text carries `exportAt`.** Invariant 3 again, for the
+   content store: the `exportAt` index *is* this device's un-exported text, so
+   `putContent(..., { local: false })` withholds it on anything arriving from a peer.
+9. **`DB_VERSION` stays 1 unless the *archive* schema genuinely changes.** Every build
+   already shipped hardcodes it, and `indexedDB.open` at a version below the one on disk
+   fails with `VersionError` — which, since `openDb()` backs every context, leaves a user
+   who rolled back with an extension that cannot capture, search or sync, and no patch can
+   reach them. Derived, device-local, re-creatable state gets its own database instead;
+   that is what `historykeeper-content` is.
 
 A blank title may later be filled in (strictly empty → non-empty), which is the one
 exception to 1 and is itself load-bearing. See ARCHITECTURE.md §3.
@@ -73,9 +101,10 @@ exception to 1 and is itself load-bearing. See ARCHITECTURE.md §3.
 
 | Path | What |
 |---|---|
-| `src/background/service-worker.js` | All capture: alarms, `onVisited`, backfill drain, message handler |
+| `src/background/service-worker.js` | All capture: alarms, `onVisited`, backfill drain, page text, message handler |
 | `src/lib/db.js` | The only IndexedDB layer |
 | `src/lib/record.js` | Hashing, normalisation, validation of untrusted records |
+| `src/lib/content.js` | Page-text helpers: tokenise, gzip, base64, snippet. Pure, imports nothing |
 | `src/lib/sync.js` | File System Access export/import, snapshots (**pages only**) |
 | `src/lib/search.js` · `fuzzy.js` | Dashboard queries and the scoring function |
 | `src/lib/blocklist.js` · `theme.js` | Settings in `chrome.storage.local` |

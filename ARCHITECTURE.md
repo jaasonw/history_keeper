@@ -20,6 +20,13 @@ file. Read that first; read the relevant section here before changing the code i
 | `imports` | `filename` | — | Bytes already consumed per shard |
 | `backfill` | `url` | — | Initial-import work queue |
 
+Page text lives in a **second database**, `historykeeper-content` (version 1,
+`openContentDb()` in the same file), deliberately outside `DB_VERSION` — see §1.3.
+
+| Store | Key | Indexes | Purpose |
+|---|---|---|---|
+| `content` | `urlHash` | `tokens` (multiEntry), `capturedAt`, `exportAt` | Gzipped page text and its terms |
+
 ### 1.1 Record shapes
 
 A `visits` row, as produced by `makeRecord()`:
@@ -55,6 +62,21 @@ A `pages` row:
 A `backfill` row: `{ url, title }`. An `imports` row:
 `{ filename, bytesConsumed, lastModified }`. A `meta` row: `{ key, value }`.
 
+A `content` row, in the second database:
+
+```js
+{
+  urlHash:    'a1b2c3d4e5f60718',   // same key as the pages row it belongs to
+  host:       'example.com',        // carried so a purge need not join `pages`
+  gz:         Uint8Array(1842),     // gzipped normalised text, ~4:1
+  tokens:     ['mitochondrion', …], // ≤500 distinct terms; this array IS the index
+  capturedAt: 1768478400000,        // also the LRU stamp for eviction
+  chars:      7431,                 // uncompressed length, before gzip
+  bytes:      1842,                 // gz.length, for the size readout
+  exportAt:   1768478400000,        // ONLY on locally captured rows (invariant 8)
+}
+```
+
 ### 1.2 Every `meta` key in use
 
 | Key | Written by | Meaning |
@@ -67,14 +89,31 @@ A `backfill` row: `{ url, title }`. An `imports` row:
 | `backfillTotal` / `backfillDone` | `startBackfill()` / `runBackfillChunk()` | Progress bar numerator and denominator. |
 | `backfillStartedAt` / `backfillFinishedAt` | `startBackfill()` / `finishBackfill()` | Presence of `backfillStartedAt` is how `handleInstalled` knows not to re-queue. |
 | `backfillComplete` | `startBackfill()` / `finishBackfill()` | Hides the banner; gates the resume path on `onStartup`. |
-| `snapshotDue` | weekly alarm; cleared by `downloadSnapshot()` | The worker cannot download, so it only raises a flag a page acts on. |
+| `snapshotDue` | `snapshot` alarm; cleared by `downloadSnapshot()` | The worker cannot download, so it only raises a flag a page acts on. |
 | `lastExportedSeq` | `exportDelta()` | High-water mark of `localSeq` already written to a shard. |
 | `lastExportAt` / `lastSyncTime` | `exportDelta()` / `importAll()` | Display only. |
+| `contentEnabled` | options page | Governs **capture** of page text. Off stops new text arriving; it does not hide what is stored. |
+| `contentStoreExists` | options page | Governs whether anything opens the content database at all. Keeps text searchable after capture is switched off, and keeps the database from being created for a user who never opted in. |
+| `contentSyncEnabled` | options page | Whether `syncNow` also writes and reads content shards. |
+| `lastExportedContentAt` | `exportContent()` | High-water mark of `exportAt` already written to a content shard. |
+| `lastContentExportAt` | `exportContent()` | Display only. |
 | `syncDirHandle` | `chooseDirectory()` | The live `FileSystemDirectoryHandle`. IndexedDB can structured-clone it; `chrome.storage` cannot, which is why it lives here and not with the other settings. |
 
 ### 1.3 Schema changes
 
-Bump `DB_VERSION` and add a branch to `migrate()` — the existing `if (oldVersion < 1)`
+**First ask whether it belongs in the archive database at all.** Bumping `DB_VERSION` is a
+one-way door: every build already shipped hardcodes `DB_VERSION = 1`, and `indexedDB.open`
+at a version *below* the one on disk fails with `VersionError`. `openDb()` backs every
+context, so a user who rolled back to an earlier build — or loaded an older unpacked copy
+— would get an extension that could no longer capture, search or sync, and no patch to the
+new code could rescue them, because the old code is already out there. Derived,
+device-local, re-creatable state belongs in its own database, which is why page text is
+`historykeeper-content` rather than a sixth store. The cost of that choice is that a
+cascade across the two cannot be one transaction; see §5.4 and invariant 5 for the
+ordering that makes it safe anyway.
+
+If the archive schema really must change: bump `DB_VERSION` and add a branch to
+`migrate()` — the existing `if (oldVersion < 1)`
 block must stay intact for users upgrading. `migrate()` receives `(db, oldVersion)` and
 runs inside the `versionchange` transaction, so it may only use synchronous
 `createObjectStore`/`createIndex` calls; to backfill data into a new index you must do it
@@ -139,12 +178,45 @@ is absent), and re-armed by `chrome.runtime.onStartup` if it was still incomplet
 Re-runnable at any time from the options page — that is the **Re-scan all Chrome history**
 button, which is also the strongest title repair (§3).
 
-### 2.4 The weekly `snapshot` alarm
+### 2.4 The `snapshot` alarm
 
 Sets `meta.snapshotDue = true` and nothing else. Downloading needs a DOM, so the
 dashboard shows a banner and does the work.
 
-### 2.5 Messages the worker accepts from pages
+Fires every `meta.snapshotIntervalDays` days — 90 (quarterly) unless the options page
+stores otherwise. `ensureAlarms()` compares the live alarm's period against that setting
+and recreates it when they differ, so a change takes effect on the next worker wake, or
+immediately via the `rescheduleSnapshot` message the options page sends.
+
+### 2.5 Page text (`captureText`) — opt-in, forward-only
+
+`chrome.tabs.onUpdated` at `status === 'complete'` →
+`chrome.scripting.executeScript({ func: () => document.body.innerText })` → `putContent`.
+
+Gated twice: `meta.contentEnabled`, and the host permission that lives in
+`optional_host_permissions` and is requested from the options page. That permission is
+`TEXT_ORIGINS` from `content.js` — `['http://*/*', 'https://*/*']`, shared by the worker
+and the options page so the request cannot drift from the manifest. **Not `<all_urls>`:**
+Chrome rejects that literal in `optional_host_permissions`, and the request throws "Only
+permissions specified in the manifest may be requested". Until that permission
+is granted Chrome does not populate `tab.url` here at all, so `isArchivable(tab.url)` is a
+free early-out for everyone who never turned the feature on — which is why this listener
+costs nothing by default. `isBlocked` applies as it does to every other capture path.
+
+**The URL comes from Chrome's own tab record, never from the injected function.** The
+script runs in the isolated world and returns text and nothing else; a page must not get
+to say which URL its text is filed under.
+
+`innerText` rather than `textContent`: it follows what is actually rendered, so hidden
+markup and scripts drop out with no parsing of our own.
+
+**There is no backfill counterpart and there cannot be.** Re-reading an already-archived
+page means a network request, which this extension does not make. Text accrues only as you
+browse, which also keeps index growth gradual — a few pages a minute, never a bulk write.
+`putContent` skips a page captured within the last 30 days, and `evictContent` trims the
+store to `CONTENT_MAX_ROWS` oldest-first once past budget.
+
+### 2.6 Messages the worker accepts from pages
 
 `chrome.runtime.onMessage` handles exactly three types; the handler returns `true` to keep
 the response channel open for the async reply.
@@ -203,6 +275,7 @@ API against the reference before calling it, and add it to the stub in the last 
     a1b2c3d4-2026-01.ndjson     <- device a1b2c3d4, January 2026
     a1b2c3d4-2026-02.ndjson
     9f8e7d6c-2026-02.ndjson     <- another device, same month, separate file
+    a1b2c3d4-content-001.jsonl  <- page text, only if that opt-in is on (§4.6)
 ```
 
 One JSON object per line, terminated by `\n`. Shards rotate monthly by
@@ -271,6 +344,33 @@ File System Access writes to the same shard would silently clobber each other.
 
 ---
 
+### 4.6 Page-text shards
+
+A separate opt-in (`contentSyncEnabled`) and separate files:
+`<deviceId>-content-<NNN>.jsonl`, rotating at 8MB, still append-only and still
+single-writer, so invariant 4 is unchanged. Text is per *page* while a visit line is per
+visit; folding it into the visit stream would re-send the same article once per time you
+opened it.
+
+One line per page: `{ urlHash, url, capturedAt, gz }`, where `gz` is **base64** of the
+gzipped text. Base64 costs about a third of the compression back — net ~3:1, roughly
+2.7 KB a page — and it is not optional: invariant 6 finds the last complete line by
+scanning for `0x0A`, and raw gzip output contains that byte freely.
+
+**The `.jsonl` extension is load-bearing.** `importAll` takes every `.ndjson` in the folder
+that is not its own, so a machine still running an older build and sharing the folder would
+otherwise download every content shard whole, reject every line against `isValidRecord`,
+and bookmark it — safe, but tens of MB per sync forever. A different extension is skipped
+at the filename filter for zero bytes read.
+
+`mergeContentLine` is the trust boundary: shape, `urlHash` really derived from `url`,
+`isBlocked`, plus a hard cap on the encoded line *before* anything is decompressed and on
+the decoded text after. Tokens are recomputed locally rather than trusted, so the tokeniser
+can change without invalidating anyone's shards, and imported rows are written with
+`local: false` so they carry no `exportAt` (invariant 8).
+
+---
+
 ## 5. Search
 
 ### 5.1 The page cache
@@ -321,6 +421,71 @@ overstate presence, so the filter stays sound) rejects a word in a couple of int
 if more than `maxDist` of the token's distinct characters are missing. `maxDist` is 0 for
 tokens ≤3 chars, 1 for ≤5, else 2. The DP rows are two module-level `Uint16Array`s reused
 across calls; allocating them per call used to dominate the pass.
+
+### 5.4 Page text is a second lane, not a bigger haystack
+
+Body text averages ~8 KB a page against ~150 bytes for `title\nurl` — roughly 1 GB across
+100k pages. It can never enter `pageCache`, and the Levenshtein tier can never scan it per
+keystroke. So there are two lanes, and lane A is exactly what §5.1–5.3 describe, untouched:
+
+- **Lane A**, title and URL: the in-memory mirror and the four tiers above.
+- **Lane B**, page text: term lookup through the `tokens` multiEntry index — the platform's
+  own inverted index, which is why there is no postings store to maintain.
+
+`scorePage` keeps `AND` **per token across both lanes**: every token must match something,
+but each may do so through either, so `react useEffect` matches a page titled *React* that
+only mentions `useEffect` in its body. `TIER_CONTENT` (0.45) sits below every tier in §5.3,
+so a page actually *called* what you typed always outranks one that merely mentions it;
+`TIER_CONTENT_TYPO` is 0.20.
+
+Tokens shorter than 3 characters skip lane B entirely — a prefix range on one or two
+characters covers most of the vocabulary. Posting lists are capped at 20 000 keys.
+
+**Typo tolerance over text** comes from the term dictionary: `'nextunique'` over that same
+index enumerates the distinct term set, so the platform already maintains it and there is
+no second store to keep consistent. A mistyped token is expanded into up to 5 real terms —
+reusing `boundedEditDistance` and the same mask prefilter from §5.3 — before the index is
+touched, and only on the second pass, on the same threshold as lane A. The walk uses
+`keyCursorEach`, not `cursorEach`: `openCursor` would deserialise every gzipped page to
+hand back a value nobody reads.
+
+**Open a fresh transaction per index lookup.** An IndexedDB transaction commits as soon as
+the event loop drains without a pending request, and the dictionary walk between two
+lookups does exactly that. A held handle is a `TransactionInactiveError` — this was a real
+bug, caught by the typo test.
+
+`invalidatePageCache()` drops the dictionary and the `contentStoreExists` memo along with
+the page mirror, so every existing call site keeps working unchanged.
+
+Snippets are built only for rows actually returned *and* only where the match came from
+text — `row.snippet` is null otherwise, which makes its presence the answer to "why is
+this here?". Nothing is decompressed for the thousands of pages merely scored.
+
+`snippetAround` returns **segments** (`{text, hit}[]`), not marked-up text, and the
+dashboard's `appendParts()` turns each into a text node or a `<mark>` with
+`createElement`/`textContent`. Archived text never goes near `innerHTML`, so the emphasis
+cannot be the thing that finally makes a hostile page's own words executable.
+
+The row's **label** is marked the same way, through `markUp()` — the no-window sibling of
+`snippetAround` — off `row.titleParts`, in both orderings, and null when the query is
+empty so plain browsing pays for none of it. Which terms light up depends on the tier that
+matched:
+
+| Tier | Marked | Why |
+|---|---|---|
+| substring / boundary | the token, widened to its whole word | it is literally there |
+| typo | the word it was rescued to (`nearestWord`) | the user never typed the real word; marking what they typed would mark nothing |
+| subsequence | nothing | its characters are scattered across the string, and emphasising them individually reads as corrupted text |
+
+`nearestWord` is `typoScore`'s own walk, exported to return the matched word instead of a
+score, so the highlight cannot disagree with the ranking about what matched.
+
+Hit ranges are widened to whole words — a term reaches the index by prefix, so typing
+`mit` matches the stored term `mitochondrion`, and lighting up three letters of a long
+word reads as a rendering bug rather than an answer — and overlapping ranges are merged so
+two query tokens landing on one word emphasise it once. The window is `SNIPPET_WIDTH`
+(420 chars, about three lines) and starts a quarter-width *before* the first hit so the
+match reads inside a sentence rather than at the edge of one.
 
 ---
 
@@ -399,8 +564,8 @@ the worker follows an edit made on the options page without a restart.
 ## 9. Testing changes
 
 `tests/logic.test.mjs` covers `db.js`, `record.js`, `search.js`, `blocklist.js`,
-`fuzzy.js`, and the merge semantics of `sync.js` (round-trip, validation, repeat import,
-partial line, `importFromFile`'s filtering). It cannot exercise the File System Access
+`fuzzy.js`, `content.js`, and the merge semantics of `sync.js` (round-trip, validation,
+repeat import, partial line, `importFromFile`'s filtering, `mergeContentLine`). It cannot exercise the File System Access
 half of `sync.js`, nor `theme.js`, which needs a DOM. Changes to the invariants belong in
 this file as a test; changes to a UI file are unavoidably manual.
 
@@ -413,10 +578,15 @@ Structure to be aware of before adding tests:
 - `chrome` is a hand-built global at the top of the file: `chrome.storage.local` with an
   in-memory `_data`, and a no-op `onChanged`. Extend it there if a module you touch needs
   more.
+- **The page-text block switches `contentEnabled` on itself and off again at the end.**
+  Everything before that line runs with the feature off, which is the state an updating
+  user is in — so the whole suite doubles as the regression test for "nothing changed for
+  anyone who did not opt in". Keep it that way: do not hoist the flag.
 - **The final test imports `service-worker.js`** against a `chrome` stub holding exactly
   the APIs the reference documents — `alarms.{onAlarm,getAll,create,clear}`,
   `history.{onVisited,onVisitRemoved,search,getVisits}`,
-  `runtime.{onInstalled,onStartup,onMessage}`. It asserts nothing beyond "the module
+  `runtime.{onInstalled,onStartup,onMessage}`, `tabs.onUpdated`,
+  `scripting.executeScript`, `permissions.{contains,request,onAdded,onRemoved}`. It asserts nothing beyond "the module
   evaluated", which is the point: that is the failure the worker cannot survive. When the
   worker starts using a new `chrome.*` API, add it to that stub — and if it is not in the
   stub because it is not in the docs, that is the test doing its job.
@@ -468,3 +638,15 @@ above.
    only gates reading tab URLs and titles. Do not add it.
 7. `dashboard.js` calls `initTheme()` unawaited, above `init()`, so the page is not
    painted in the wrong flavour while the archive queries run.
+8. Page text is a **second database** rather than `DB_VERSION = 2`. That is not an
+   oversight — see §1.3. It is also why `deletePage` deletes text *before* it opens the
+   archive transaction and `deleteVisit` does it *after*: the two cannot share one
+   transaction, and those orderings are each the safe one for their path (invariant 5).
+9. `putContent`'s `now` defaults to `nextStamp()`, not `Date.now()`, so stamps are
+   strictly increasing within a context — `capturedAt`/`exportAt` is the export cursor and
+   two captures in one millisecond would let the second slip past an exclusive range. A
+   caller that passes `now` explicitly gets exactly what it asked for.
+10. `contentEnabled` and `contentStoreExists` are two flags on purpose. The first governs
+    capture, the second governs whether the content database is opened at all — which is
+    what keeps stored text searchable after capture is switched off, and keeps the
+    database from existing for a user who never opted in.

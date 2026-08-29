@@ -27,6 +27,7 @@ const record = await load('lib/record.js');
 const search = await load('lib/search.js');
 const blocklist = await load('lib/blocklist.js');
 const fuzzy = await load('lib/fuzzy.js');
+const content = await load('lib/content.js');
 // Only importFromFile is exercised here — every other export needs File System Access
 // handles, which do not exist under Node — but nothing at module scope needs the DOM
 // or that API, so the import boundary itself (the trust boundary for peer data) is
@@ -576,6 +577,381 @@ await test('repairing an imported record does not enlist it for export', async (
   assert.equal(await db.backfillTitle(await record.urlHash('https://other.test/quiet'), 'Louder'), 0);
 });
 
+console.log('\npage text');
+
+const TEXT = 'The mitochondrion is the powerhouse of the cell. Mitochondria generate ATP.';
+
+// A snippet is segments, not a string, so the dashboard can emphasise hits without
+// putting archived page text through innerHTML.
+const snippetText = (row) => (row.snippet || []).map((part) => part.text).join('');
+const highlighted = (row) => (row.snippet || []).filter((p) => p.hit).map((p) => p.text);
+const titleText = (row) => (row.titleParts || []).map((part) => part.text).join('');
+const titleMarks = (row) => (row.titleParts || []).filter((p) => p.hit).map((p) => p.text);
+
+await test('tokenise dedupes, bounds length, and keeps the most frequent past the cap', () => {
+  const tokens = content.tokenise('alpha alpha beta! beta beta a ' + 'x'.repeat(40));
+  // Order is irrelevant to a multiEntry index, so terms come back as first seen.
+  assert.deepEqual(tokens, ['alpha', 'beta']);
+  assert.ok(!tokens.includes('a'), 'single characters are not terms');
+  assert.ok(!tokens.some((t) => t.length > 32), 'over-long runs are not terms');
+
+  const many = content.tokenise(
+    Array.from({ length: 900 }, (_, i) => `term${i}`).join(' ') + ' winner'.repeat(50),
+  );
+  assert.equal(many.length, content.MAX_TOKENS);
+  assert.equal(many[0], 'winner', 'the cap keeps what the page is actually about');
+});
+
+await test('tokenise does not shred non-Latin script', () => {
+  assert.deepEqual(content.tokenise('日本語 テスト'), ['日本語', 'テスト']);
+});
+
+await test('gzip round-trips, including non-ASCII', async () => {
+  const original = TEXT + ' — naïve café 日本語';
+  const bytes = await content.gzip(original);
+  assert.ok(bytes instanceof Uint8Array);
+  assert.equal(await content.gunzip(bytes), original);
+});
+
+await test('normaliseText collapses layout and applies the cap', () => {
+  assert.equal(content.normaliseText('  a\n\n  b \t c '), 'a b c');
+  assert.equal(content.normaliseText('x'.repeat(200_000)).length, content.MAX_TEXT_CHARS);
+});
+
+// The content path is only reachable once the feature is switched on; everything above
+// this line ran with it off, which is the state an updating user is in.
+await db.setMeta('contentEnabled', true);
+await db.setMeta('contentStoreExists', true);
+search.invalidatePageCache();
+
+const CELL_URL = 'https://bio.test/organelles';
+const DECOY_URL = 'https://bio.test/atp-glossary';
+const cellHash = await record.urlHash(CELL_URL);
+const decoyHash = await record.urlHash(DECOY_URL);
+
+await db.putVisits([await mk(CELL_URL, 'Organelles', 1)], { assignLocalSeq: true });
+await db.putVisits([await mk(DECOY_URL, 'ATP glossary', 1)], { assignLocalSeq: true });
+await db.putContent(cellHash, CELL_URL, TEXT);
+await db.putContent(decoyHash, DECOY_URL, 'A glossary of terms with no organelle detail.');
+search.invalidatePageCache();
+
+await test('a snippet is wide enough to read and marks every hit in the window', () => {
+  const prose =
+    'Chapter one. '.repeat(20) +
+    'The kestrel hovered above the meadow. ' +
+    'Filler sentence. '.repeat(40) +
+    'A second kestrel appeared.';
+  const parts = content.snippetAround(prose, ['kestrel']);
+  const text = parts.map((p) => p.text).join('');
+
+  // Wide enough that the sentence around the match survives, and led into rather than
+  // started on, so the match reads in context.
+  assert.ok(text.length > 300, `expected a wide excerpt, got ${text.length}`);
+  assert.ok(text.includes('hovered above the meadow'));
+  assert.ok(text.startsWith('…'), 'a window taken from mid-document says so');
+  assert.ok(parts.some((p) => p.hit && p.text === 'kestrel'));
+
+  // Segments reassemble into a contiguous slice — no character duplicated or dropped.
+  assert.ok(prose.includes(text.replace(/…/g, '')));
+});
+
+await test('overlapping terms highlight once, not twice', () => {
+  const parts = content.snippetAround('the mitochondrion matters', ['mito', 'chondrion']);
+  assert.deepEqual(parts.filter((p) => p.hit).map((p) => p.text), ['mitochondrion']);
+});
+
+await test('a term the text cap cut still yields a readable head', () => {
+  const parts = content.snippetAround('some stored prose', ['absent']);
+  assert.deepEqual(parts, [{ text: 'some stored prose', hit: false }]);
+  assert.deepEqual(content.snippetAround('', ['x']), []);
+});
+
+await test('putContent skips a still-fresh capture and replaces a stale one', async () => {
+  assert.equal(await db.putContent(cellHash, CELL_URL, 'newer text'), false);
+  assert.equal(await db.getContentText(cellHash), content.normaliseText(TEXT));
+
+  const stale = Date.now() + 60 * 86_400_000;
+  assert.equal(await db.putContent(cellHash, CELL_URL, TEXT + ' Revised.', stale), true);
+  assert.ok((await db.getContentText(cellHash)).endsWith('Revised.'));
+  await db.putContent(cellHash, CELL_URL, TEXT, stale + 60 * 86_400_000);
+});
+
+await test('a thumbnail lands on a row captured before thumbnails existed', async () => {
+  const THUMB = 'data:image/webp;base64,AAAA';
+  // The row is still fresh, so no re-capture happens — the thumbnail is patched in on
+  // its own, which is what keeps pre-existing rows from staying blank for a whole TTL.
+  assert.equal(await db.putContent(cellHash, CELL_URL, TEXT, undefined, { thumb: THUMB }), false);
+
+  const thumbs = await db.getThumbs([cellHash, decoyHash]);
+  assert.equal(thumbs.get(cellHash), THUMB);
+  assert.ok(!thumbs.has(decoyHash), 'a page with no thumbnail is absent, not blank');
+  assert.equal(await db.getContentText(cellHash), content.normaliseText(TEXT), 'text untouched');
+});
+
+await test('a term only in the page text finds the page', async () => {
+  const { rows } = await search.relevanceQuery({ text: 'powerhouse' });
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].url, CELL_URL);
+  assert.ok(snippetText(rows[0]).includes('powerhouse'), 'the row says why it matched');
+  assert.deepEqual(highlighted(rows[0]), ['powerhouse'], 'and shows which word did it');
+});
+
+await test('a title hit is marked, and the label still reads whole', async () => {
+  const { rows } = await search.relevanceQuery({ text: 'organelles' });
+  const hit = rows.find((r) => r.url === CELL_URL);
+  assert.deepEqual(titleMarks(hit), ['Organelles']);
+  // Segments must reassemble into exactly the label, or the row renders mangled text.
+  assert.equal(titleText(hit), 'Organelles');
+});
+
+await test('a typo in the query marks the word it was rescued to', async () => {
+  // The user typed neither of these; the typo tier found them. Emphasising what they
+  // literally typed would highlight nothing at all.
+  const { rows } = await search.relevanceQuery({ text: 'organellez' });
+  const hit = rows.find((r) => r.url === CELL_URL);
+  assert.ok(hit, 'the typo still matched');
+  assert.deepEqual(titleMarks(hit), ['Organelles']);
+});
+
+await test('a subsequence match marks nothing rather than scattering', async () => {
+  // 'ognls' matches "Organelles" by subsequence. Lighting up five separated letters
+  // reads as corrupted text, so the title is left plain.
+  const { rows } = await search.relevanceQuery({ text: 'ognls' });
+  const hit = rows.find((r) => r.url === CELL_URL);
+  assert.ok(hit, 'subsequence still matches, it just is not highlighted');
+  assert.deepEqual(titleMarks(hit), []);
+  assert.equal(titleText(hit), 'Organelles');
+});
+
+await test('a page with no title marks the url standing in for it', async () => {
+  const url = 'https://untitled.test/annual-report';
+  await db.putVisits([await mk(url, '', 5)], { assignLocalSeq: true });
+  search.invalidatePageCache();
+
+  const { rows } = await search.relevanceQuery({ text: 'annual' });
+  const hit = rows.find((r) => r.url === url);
+  assert.deepEqual(titleMarks(hit), ['annual']);
+  assert.equal(titleText(hit), url);
+  await db.deletePage(await record.urlHash(url));
+  search.invalidatePageCache();
+});
+
+await test('time-ordered rows carry the same emphasis, and none without a query', async () => {
+  const withText = await search.query({ text: 'organelles' });
+  const hit = withText.rows.find((r) => r.url === CELL_URL);
+  assert.deepEqual(titleMarks(hit), ['Organelles']);
+
+  // Plain browsing pays for none of this.
+  const browsing = await search.query({ limit: 5 });
+  assert.ok(browsing.rows.every((r) => r.titleParts === null));
+});
+
+await test('a title match outranks a page that merely mentions the word', async () => {
+  const { rows } = await search.relevanceQuery({ text: 'atp' });
+  assert.equal(rows[0].url, DECOY_URL, 'ATP is in one title and the other page body');
+  assert.ok(rows.some((r) => r.url === CELL_URL));
+  assert.ok(rows[0].score > rows.find((r) => r.url === CELL_URL).score);
+});
+
+await test('a mistyped term is rescued through the term dictionary', async () => {
+  const { rows } = await search.relevanceQuery({ text: 'mitochondrian' });
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].url, CELL_URL);
+});
+
+await test('AND holds across the two lanes', async () => {
+  // "organelles" only in the title, "powerhouse" only in the text.
+  const both = await search.relevanceQuery({ text: 'organelles powerhouse' });
+  assert.equal(both.rows.length, 1);
+  assert.equal(both.rows[0].url, CELL_URL);
+
+  const missing = await search.relevanceQuery({ text: 'organelles ribosome' });
+  assert.equal(missing.rows.length, 0, 'a token matching in neither lane still fails');
+});
+
+await test('short tokens do not drag the corpus in through prefix matching', async () => {
+  // A prefix range on one or two characters covers most of the vocabulary, so page text
+  // is skipped below the minimum term length. A snippet is only ever set from a content
+  // hit, which makes it the honest witness here — the title/URL lane still matches short
+  // tokens by subsequence, exactly as it did before any of this.
+  const long = await search.relevanceQuery({ text: 'mit' });
+  const hit = long.rows.find((r) => r.url === CELL_URL);
+  assert.ok(hit && snippetText(hit).includes('itochondri'), 'three characters reach the text');
+  // Widened to the whole word: highlighting just the "mit" of "mitochondrion" would read
+  // as a rendering bug rather than as an answer.
+  assert.deepEqual(highlighted(hit), ['mitochondrion', 'Mitochondria']);
+
+  const short = await search.relevanceQuery({ text: 'mi' });
+  const skipped = short.rows.find((r) => r.url === CELL_URL);
+  assert.ok(!skipped || !skipped.snippet, 'two characters do not');
+});
+
+await test('deleting a page takes its text with it', async () => {
+  const url = 'https://bio.test/doomed';
+  const hash = await record.urlHash(url);
+  await db.putVisits([await mk(url, 'Doomed', 2)], { assignLocalSeq: true });
+  await db.putContent(hash, url, 'Ephemeral body text about lysosomes.');
+  assert.ok(await db.getContentText(hash));
+
+  await db.deletePage(hash);
+  assert.equal(await db.getContentText(hash), null);
+});
+
+await test('deleteVisit drops the text only when the last visit goes', async () => {
+  const url = 'https://bio.test/twice';
+  const hash = await record.urlHash(url);
+  const first = await mk(url, 'Twice', 3);
+  const second = await mk(url, 'Twice', 4);
+  await db.putVisits([first, second], { assignLocalSeq: true });
+  await db.putContent(hash, url, 'Body text about vacuoles.');
+
+  await db.deleteVisit(first.id);
+  assert.ok(await db.getContentText(hash), 'a page still in the archive keeps its text');
+  await db.deleteVisit(second.id);
+  assert.equal(await db.getContentText(hash), null);
+});
+
+await test('eviction drops the least recently captured first', async () => {
+  const before = (await db.contentStats()).rows;
+  await db.putContent('aaaaaaaaaaaaaaaa', 'https://evict.test/old', 'oldest text here', 1000);
+  await db.putContent('bbbbbbbbbbbbbbbb', 'https://evict.test/new', 'newest text here', 9_000_000_000_000);
+
+  assert.equal(await db.evictContent(before + 2), 0, 'under budget removes nothing');
+  assert.equal(await db.evictContent(before + 1), 1);
+  assert.equal(await db.getContentText('aaaaaaaaaaaaaaaa'), null);
+  assert.ok(await db.getContentText('bbbbbbbbbbbbbbbb'));
+  await db.deleteContent('bbbbbbbbbbbbbbbb');
+});
+
+await test('the archive database is untouched by any of this', async () => {
+  // The whole point of a second database: an older build hardcodes DB_VERSION = 1 and
+  // would fail to open the archive at all if this feature had bumped it.
+  assert.equal(db.DB_VERSION, 1);
+  const handle = await db.openDb();
+  assert.equal(handle.version, 1);
+  assert.ok(!handle.objectStoreNames.contains('content'));
+  assert.deepEqual([...handle.objectStoreNames].sort(), [
+    'backfill', 'imports', 'meta', 'pages', 'visits',
+  ]);
+});
+
+await test('clearContent empties the text index without touching history', async () => {
+  const pagesBefore = await db.countStore('pages');
+  await db.clearContent();
+  assert.equal((await db.contentStats()).rows, 0);
+  assert.equal(await db.countStore('pages'), pagesBefore);
+
+  search.invalidatePageCache();
+  const { rows } = await search.relevanceQuery({ text: 'organelles' });
+  assert.equal(rows.length, 1, 'title search still works with no text indexed at all');
+});
+
+await test('switching capture off leaves stored text searchable', async () => {
+  // contentEnabled governs capture only. Text already stored goes away when the user
+  // forgets it, not when they stop collecting more.
+  await db.putContent(cellHash, CELL_URL, TEXT, Date.now() + 400 * 86_400_000);
+  await db.setMeta('contentEnabled', false);
+  search.invalidatePageCache();
+
+  const { rows } = await search.relevanceQuery({ text: 'powerhouse' });
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].url, CELL_URL);
+});
+
+await test('a content shard is invisible to the visit importer', async () => {
+  // An older build takes every .ndjson in the folder that is not its own. If content
+  // shards ended in .ndjson it would download each one whole, reject every line, and
+  // bookmark it — forever. The extension is what keeps them out of its way.
+  const visitShardFilter = (name) => name.endsWith('.ndjson');
+  assert.equal(visitShardFilter('devB-content-001.jsonl'), false);
+  assert.equal(visitShardFilter('devB-2026-01.ndjson'), true);
+});
+
+const peerLine = async (url, text, capturedAt = 1_700_000_000_000) => ({
+  urlHash: await record.urlHash(url),
+  url,
+  capturedAt,
+  gz: content.toBase64(await content.gzip(text)),
+});
+
+await test('an exported content line carries the url its hash came from', async () => {
+  // Without the url on the row, every exported line would reach a peer with url '' and be
+  // rejected by the trust boundary — a sync that silently transfers nothing.
+  const pending = await db.contentToExport(0, 100);
+  assert.ok(pending.length > 0);
+  for (const row of pending) {
+    assert.equal(typeof row.url, 'string');
+    assert.equal(row.urlHash, await record.urlHash(row.url));
+  }
+});
+
+await test('a peer content line round-trips through the shard format', async () => {
+  const url = 'https://peer.test/article';
+  const body = 'Distributed consensus needs a quorum. Paxos and Raft both use one.';
+  assert.equal(await sync.mergeContentLine(await peerLine(url, body)), true);
+
+  const hash = await record.urlHash(url);
+  assert.equal(await db.getContentText(hash), body);
+
+  // The page has no visit here yet, so it is searchable the moment its visit arrives.
+  await db.putVisits([await mk(url, 'Consensus', 1)], { assignLocalSeq: true });
+  search.invalidatePageCache();
+  const { rows } = await search.relevanceQuery({ text: 'quorum' });
+  assert.ok(rows.some((r) => r.url === url));
+});
+
+await test("imported text is never re-exported under this device's name", async () => {
+  // Invariant 3, applied to page text: exportAt is absent on a peer's row, and IndexedDB
+  // omits a record missing an indexed property, so the export index cannot see it.
+  const peerHash = await record.urlHash('https://peer.test/article');
+  const pending = await db.contentToExport(0, 100);
+  assert.ok(pending.length > 0, 'locally captured text is queued');
+  assert.ok(!pending.some((row) => row.urlHash === peerHash), 'a peer row is not');
+  assert.ok(pending.every((row) => row.exportAt !== undefined));
+});
+
+await test('the content trust boundary rejects what the visit boundary would', async () => {
+  const good = await peerLine('https://peer.test/ok', 'ordinary body text');
+
+  // A hash that was not derived from this URL would land the text on another page.
+  assert.equal(await sync.mergeContentLine({ ...good, urlHash: 'f'.repeat(16) }), false);
+  // Schemes the archive never stores.
+  assert.equal(
+    await sync.mergeContentLine(await peerLine('javascript:alert(1)', 'x').catch(() => ({}))),
+    false,
+  );
+  // Shape.
+  assert.equal(await sync.mergeContentLine({ ...good, capturedAt: 1.5 }), false);
+  assert.equal(await sync.mergeContentLine({ ...good, gz: 42 }), false);
+  assert.equal(await sync.mergeContentLine(null), false);
+  // Size, before anything is decompressed.
+  assert.equal(await sync.mergeContentLine({ ...good, gz: 'A'.repeat(300_000) }), false);
+
+  await blocklist.setPatterns(['peer.test']);
+  assert.equal(await sync.mergeContentLine(await peerLine('https://peer.test/secret', 'x')), false);
+  await blocklist.setPatterns([]);
+});
+
+await db.setMeta('contentStoreExists', false);
+search.invalidatePageCache();
+
+await test('the requested origins are exactly what the manifest declares', async () => {
+  // chrome.permissions.request matches its argument against the manifest literally. A
+  // mismatch is not a lint error, it is "Only permissions specified in the manifest may
+  // be requested" thrown at the user the first time they tick the box — which is exactly
+  // how <all_urls> failed here, Chrome having refused that literal in
+  // optional_host_permissions.
+  const { readFile } = await import('node:fs/promises');
+  const manifest = JSON.parse(await readFile(new URL('../manifest.json', SRC), 'utf8'));
+
+  assert.deepEqual(manifest.optional_host_permissions, content.TEXT_ORIGINS);
+  assert.ok(!JSON.stringify(manifest.optional_host_permissions).includes('all_urls'));
+  // `scripting` is what makes chrome.scripting exist at all; without it the worker throws
+  // at module scope and takes every other listener down with it.
+  assert.ok(manifest.permissions.includes('scripting'));
+  assert.ok(!manifest.host_permissions, 'host access stays optional, never required');
+});
+
 console.log('\nservice worker');
 
 await test('the worker evaluates against documented chrome APIs only', async () => {
@@ -600,6 +976,16 @@ await test('the worker evaluates against documented chrome APIs only', async () 
       async getVisits() { return []; },
     },
     runtime: { onInstalled: event(), onStartup: event(), onMessage: event() },
+    // onUpdated fires without the "tabs" permission; the url field it carries is what
+    // the optional <all_urls> grant unlocks.
+    tabs: { onUpdated: event() },
+    scripting: { async executeScript() { return []; } },
+    permissions: {
+      async contains() { return false; },
+      async request() { return false; },
+      onAdded: event(),
+      onRemoved: event(),
+    },
   });
 
   await load('background/service-worker.js');

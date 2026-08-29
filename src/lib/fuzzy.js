@@ -15,7 +15,11 @@
 const TIER_BOUNDARY = 1.0;
 const TIER_SUBSTRING = 0.85;
 const TIER_SUBSEQUENCE = 0.55;
+// Page text, when the title and URL say nothing. Deliberately below every tier above:
+// a page actually *called* what you typed should always beat one that merely mentions it.
+const TIER_CONTENT = 0.45;
 const TIER_TYPO = 0.35;
+const TIER_CONTENT_TYPO = 0.20;
 const TITLE_BONUS = 0.05;
 
 const MAX_WORD = 64;
@@ -29,17 +33,17 @@ function isWordChar(code) {
  * the ten digits are folded onto six. Folding only ever makes the mask claim a
  * character *might* be present, so the filter built on it stays sound.
  */
-function charBit(code) {
+export function charBit(code) {
   return code >= 97 ? code - 97 : 26 + ((code - 48) % 6);
 }
 
-function maskOf(text) {
+export function maskOf(text) {
   let mask = 0;
   for (let i = 0; i < text.length; i++) mask |= 1 << charBit(text.charCodeAt(i));
   return mask;
 }
 
-function popcount(n) {
+export function popcount(n) {
   n -= (n >> 1) & 0x55555555;
   n = (n & 0x33333333) + ((n >> 2) & 0x33333333);
   n = (n + (n >> 4)) & 0x0f0f0f0f;
@@ -117,7 +121,7 @@ export function boundedEditDistance(a, b, maxDist) {
 }
 
 /**
- * Compare the token against each word of the haystack.
+ * The first word of the haystack within `maxDist` edits of the token, or null.
  *
  * Word boundaries are walked by index, accumulating a character-presence mask as we
  * go. A word can only be within maxDist edits of the token if at most maxDist of the
@@ -125,8 +129,8 @@ export function boundedEditDistance(a, b, maxDist) {
  * ops and rejects the overwhelming majority of words before any string is allocated
  * or any table filled in.
  */
-function typoScore(token, hay, maxDist) {
-  if (maxDist === 0) return 0;
+export function nearestWord(token, hay, maxDist = token.maxDist) {
+  if (maxDist === 0) return null;
 
   const text = token.text;
   const minLen = text.length - maxDist;
@@ -155,11 +159,17 @@ function typoScore(token, hay, maxDist) {
       popcount(token.mask & ~mask) <= maxDist &&
       boundedEditDistance(text, hay.slice(start, i), maxDist) <= maxDist
     ) {
-      return TIER_TYPO;
+      return hay.slice(start, i);
     }
     start = -1;
   }
-  return 0;
+  return null;
+}
+
+// The word itself is what the dashboard needs to emphasise a typo'd match; the score is
+// all the ranking needs. One walk serves both.
+function typoScore(token, hay, maxDist) {
+  return nearestWord(token, hay, maxDist) ? TIER_TYPO : 0;
 }
 
 function scoreToken(token, page, allowTypos) {
@@ -184,13 +194,23 @@ function scoreToken(token, page, allowTypos) {
 }
 
 /**
+ * @param {object[]|null} contentHits  Parallel to prepared.tokens. Each entry is
+ *   `{hashes: Set<urlHash>, fuzzy: boolean}` — the pages whose *text* carries that term,
+ *   resolved from the term index by search.js. Null when page text is not indexed.
  * @returns {number} 0 when any token fails to match, otherwise a relevance score.
- *   All tokens must match — the AND semantics of the original exact search are kept.
+ *   All tokens must match, which is the AND semantics of the original exact search — but
+ *   each one may satisfy that through the title/URL haystack *or* through page text, so
+ *   "react useEffect" can match a page titled "react" that only mentions useEffect.
  */
-export function scorePage(page, prepared, allowTypos = false) {
+export function scorePage(page, prepared, allowTypos = false, contentHits = null) {
   let total = 0;
-  for (const token of prepared.tokens) {
-    const score = scoreToken(token, page, allowTypos);
+  for (let i = 0; i < prepared.tokens.length; i++) {
+    const token = prepared.tokens[i];
+    let score = scoreToken(token, page, allowTypos);
+    if (score === 0 && contentHits) {
+      const hit = contentHits[i];
+      if (hit && hit.hashes.has(page.urlHash)) score = hit.fuzzy ? TIER_CONTENT_TYPO : TIER_CONTENT;
+    }
     if (score === 0) return 0;
     total += score;
   }

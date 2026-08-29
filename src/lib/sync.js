@@ -8,13 +8,40 @@
 // This module must run in an extension PAGE. The File System Access API does not exist
 // in service workers.
 
-import { openDb, reqToPromise, txDone, getMeta, setMeta, setManyMeta, putVisits, cursorEach } from './db.js';
-import { isValidRecord, urlHashMatches, forExport } from './record.js';
+import {
+  openDb,
+  reqToPromise,
+  txDone,
+  getMeta,
+  setMeta,
+  setManyMeta,
+  putVisits,
+  cursorEach,
+  putContent,
+  contentToExport,
+} from './db.js';
+import { isValidRecord, urlHashMatches, forExport, urlHash, hostOf, isArchivable } from './record.js';
 import { isBlocked } from './blocklist.js';
+import { gunzip, toBase64, fromBase64, MAX_TEXT_CHARS } from './content.js';
 
 const FOLDER_NAME = 'history-keeper';
 const HANDLE_KEY = 'syncDirHandle';
 const EXPORT_BATCH = 20_000;
+
+// Page text, when the user has opted into syncing it, rides its own shards.
+//
+// The extension is `.jsonl`, not `.ndjson`, and that is load-bearing: importAll below
+// takes *every* .ndjson file it does not own, so a machine still running an older build
+// and sharing this folder would otherwise download every content shard in full, reject
+// every line, and bookmark it. A different extension is skipped at the filename filter
+// for zero bytes read.
+const CONTENT_SHARD_RE = /^(.+)-content-(\d+)\.jsonl$/;
+const CONTENT_SHARD_MAX_BYTES = 8 * 1024 * 1024;
+const CONTENT_EXPORT_BATCH = 2_000;
+// Text is capped at MAX_TEXT_CHARS before it is compressed, so a legitimate line cannot
+// approach this. It is a bound on what a hostile or corrupt shard can make this device
+// decompress, in the spirit of isValidRecord's 500-character title cap.
+const MAX_CONTENT_LINE = 256 * 1024;
 
 // -------------------------------------------------------------------- folder handle
 
@@ -246,10 +273,150 @@ export async function importAll(handle, onProgress) {
   return { added, titled, filesRead };
 }
 
+// --------------------------------------------------------------------- page text
+
+/** Highest shard number this device has already written, and its current size. */
+async function currentContentShard(dir, deviceId) {
+  let highest = 0;
+  let size = 0;
+  for await (const [name, entry] of dir.entries()) {
+    const match = CONTENT_SHARD_RE.exec(name);
+    if (!match || match[1] !== deviceId || entry.kind !== 'file') continue;
+    const n = Number(match[2]);
+    if (n >= highest) {
+      highest = n;
+      size = (await entry.getFile()).size;
+    }
+  }
+  if (highest === 0) return { number: 1, size: 0 };
+  // Rotate rather than growing one file forever: a cloud client re-uploads a changed
+  // file whole, which is the same reason visit shards rotate monthly.
+  return size >= CONTENT_SHARD_MAX_BYTES ? { number: highest + 1, size: 0 } : { number: highest, size };
+}
+
+/**
+ * Append page text captured on this device since the last content export.
+ *
+ * Separate shards from the visit lines because text is per *page* while a visit line is
+ * per visit — folding it into the visit stream would re-send the same article once per
+ * time you opened it.
+ */
+export async function exportContent(handle) {
+  if (!(await getMeta('contentSyncEnabled', false))) return { contentExported: 0 };
+
+  const deviceId = await getMeta('deviceId');
+  const since = await getMeta('lastExportedContentAt', 0);
+  const rows = await contentToExport(since, CONTENT_EXPORT_BATCH);
+  if (!rows.length) return { contentExported: 0 };
+
+  const dir = await syncFolder(handle);
+  const { number } = await currentContentShard(dir, deviceId);
+
+  let highest = since;
+  const lines = rows.map((row) => {
+    if (row.exportAt > highest) highest = row.exportAt;
+    return JSON.stringify({
+      urlHash: row.urlHash,
+      url: row.url,
+      capturedAt: row.capturedAt,
+      gz: toBase64(row.gz),
+    });
+  });
+
+  await appendLines(dir, `${deviceId}-content-${String(number).padStart(3, '0')}.jsonl`, lines);
+  await setManyMeta({ lastExportedContentAt: highest, lastContentExportAt: Date.now() });
+  return { contentExported: rows.length, contentMore: rows.length >= CONTENT_EXPORT_BATCH };
+}
+
+/**
+ * Read the tail of every peer's content shards.
+ *
+ * Byte-offset bookkeeping is the visit path's, reusing the `imports` store — the
+ * filenames cannot collide, and invariant 6 (never advance past anything but a newline)
+ * matters here for exactly the same reason.
+ */
+export async function importContent(handle) {
+  if (!(await getMeta('contentSyncEnabled', false))) return { contentImported: 0 };
+
+  const dir = await syncFolder(handle);
+  const deviceId = await getMeta('deviceId');
+  const db = await openDb();
+  let imported = 0;
+
+  for await (const [name, entry] of dir.entries()) {
+    const match = CONTENT_SHARD_RE.exec(name);
+    if (!match || entry.kind !== 'file' || match[1] === deviceId) continue;
+
+    const file = await entry.getFile();
+    const bookmark = await reqToPromise(
+      db.transaction('imports').objectStore('imports').get(name),
+    );
+    let consumed = bookmark && file.size >= bookmark.bytesConsumed ? bookmark.bytesConsumed : 0;
+    if (consumed === file.size) continue;
+
+    const bytes = new Uint8Array(await file.slice(consumed).arrayBuffer());
+    const lastNewline = bytes.lastIndexOf(0x0a);
+    if (lastNewline === -1) continue;
+
+    const text = new TextDecoder().decode(bytes.subarray(0, lastNewline + 1));
+    consumed += lastNewline + 1;
+
+    for (const line of text.split('\n')) {
+      if (!line.trim()) continue;
+      try {
+        if (await mergeContentLine(JSON.parse(line))) imported++;
+      } catch {
+        // Skip a corrupt or oversized line rather than abandoning the file.
+      }
+    }
+
+    const tx = db.transaction('imports', 'readwrite');
+    tx.objectStore('imports').put({ filename: name, bytesConsumed: consumed, lastModified: file.lastModified });
+    await txDone(tx);
+  }
+
+  return { contentImported: imported };
+}
+
+/**
+ * The trust boundary for a peer's page text.
+ *
+ * Same three questions the visit import asks — is the shape right, was this hash really
+ * derived from this URL, and is the host blocked here — plus a size bound, because
+ * unlike a visit line this one is decompressed.
+ */
+export async function mergeContentLine(rec) {
+  if (
+    typeof rec !== 'object' ||
+    rec === null ||
+    typeof rec.urlHash !== 'string' ||
+    typeof rec.url !== 'string' ||
+    typeof rec.gz !== 'string' ||
+    !Number.isInteger(rec.capturedAt) ||
+    rec.gz.length > MAX_CONTENT_LINE ||
+    !isArchivable(rec.url)
+  ) {
+    return false;
+  }
+
+  if (rec.urlHash !== (await urlHash(rec.url))) return false;
+  if (await isBlocked(rec.url, hostOf(rec.url))) return false;
+
+  const decoded = await gunzip(fromBase64(rec.gz));
+  if (decoded.length > MAX_TEXT_CHARS) return false;
+
+  // local:false withholds exportAt, so a peer's text is never re-exported from here.
+  // Tokens are recomputed rather than trusted, which also means the tokeniser can change
+  // without invalidating anyone's shards.
+  return putContent(rec.urlHash, rec.url, decoded, rec.capturedAt, { local: false });
+}
+
 export async function syncNow(handle, onProgress) {
   const exported = await exportDelta(handle);
   const imported = await importAll(handle, onProgress);
-  return { ...exported, ...imported };
+  const contentOut = await exportContent(handle);
+  const contentIn = await importContent(handle);
+  return { ...exported, ...imported, ...contentOut, ...contentIn };
 }
 
 // ------------------------------------------------------- manual snapshot and import

@@ -13,9 +13,14 @@ is still inside Chrome's 90-day window when you install it. Search it years late
 Everything stays on your computer. The extension has no server, no account, and no
 network access at all.
 
+Optionally, it can also store the text of the pages you visit, so you can find a page by
+something you read on it rather than only by its title. That is off until you turn it on.
+
 ## Features
 
 - **Unlimited\* History** Visits are recorded as they happen and never expire. Only limited by disk space
+- **Full-text Search (optional)** Turn on page text and the same search reaches what was
+  written on the page, not just its title and address — typos included.
 - **Fuzzy Search** Type roughly what you remember — partial words,
   wrong order, typos — and results appear as you type. `gthb` finds github.com; `pythom`
   finds python.
@@ -98,14 +103,23 @@ removes ones you'd already collected.
 
 ## Privacy
 
-Nothing leaves your machine. The extension requests no host permissions and makes no
-network requests — the only data that ever moves is the files you explicitly point the
-sync folder at.
+Nothing leaves your machine. The extension makes no network requests at all — the only
+data that ever moves is the files you explicitly point the sync folder at.
+
+It requests no host permissions on install. Permission to read the pages you visit is
+optional, is asked for only if you turn on page-text search, and can be revoked from
+`chrome://extensions` at any time.
 
 Worth knowing:
 
 - **Incognito is never recorded.** Those visits don't reach Chrome's history at all.
-- **Page contents aren't saved** — only the URL, title, time, and how you got there.
+- **Page text is off by default.** Out of the box only the URL, title, time, and how you
+  got there are saved. **Store the text of pages I visit** in the options page turns on
+  full-text search over what was actually on the page; Chrome asks for permission to read
+  the pages you visit at the moment you tick it, and never before. Blocklisted sites are
+  skipped, the text is compressed and stays on your machine unless you also switch on
+  page-text sync, and **Forget all stored page text** deletes the lot without touching
+  your history.
 - **The archive isn't encrypted**, on disk or in the cloud folder. If someone can read your files, they can read your history.
 - **Deleting history in Chrome doesn't delete it here.** This is a feature not a bug, long term archival storage of history that outlasts the native browser history. It does mean "clear browsing data" no longer clears everything. Use the ✕ on a dashboard row, or a blocklist pattern plus purge.
 
