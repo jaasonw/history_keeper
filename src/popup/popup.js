@@ -18,7 +18,7 @@ function formatAgo(ms) {
 }
 
 function formatBytes(bytes) {
-  if (typeof bytes !== 'number') return '—';
+  if (typeof bytes !== 'number') return '–';
   const units = ['B', 'KB', 'MB', 'GB', 'TB'];
   let n = bytes;
   let unit = 0;
@@ -56,7 +56,7 @@ async function load() {
   $('pages').textContent = nf.format(pages);
   $('oldest').textContent = oldest
     ? new Date(oldest).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
-    : '—';
+    : '–';
   $('size').textContent = formatBytes(bytes);
   $('sync').textContent = formatAgo(await getMeta('lastSyncTime', null));
 
@@ -69,7 +69,7 @@ async function load() {
     bar.value = done;
     bar.hidden = false;
   } else if (await getMeta('snapshotDue', false)) {
-    $('note').textContent = 'Backup snapshot is due — open the dashboard to save it.';
+    $('note').textContent = 'Backup snapshot is due. Open the dashboard to save it.';
   }
 }
 

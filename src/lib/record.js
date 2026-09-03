@@ -16,7 +16,7 @@ export function hostOf(url) {
   try {
     const hostname = new URL(url).hostname;
     // A trailing-dot FQDN (https://bank.example./x) is a real, navigable URL, but it
-    // would otherwise never match a blocklist pattern for "bank.example" — strip it here
+    // would otherwise never match a blocklist pattern for "bank.example", so strip it here
     // so every consumer (capture, blocklist matching, the page rollup) sees one host.
     return hostname.endsWith('.') ? hostname.slice(0, -1) : hostname;
   } catch {

@@ -4,7 +4,7 @@
 // page can read it without opening the database, and chrome.storage.onChanged lets a
 // dashboard tab follow a change made on the options page without a reload.
 //
-// Only pages import this — the service worker has no DOM to paint.
+// Only pages import this; the service worker has no DOM to paint.
 
 const KEY = 'theme';
 

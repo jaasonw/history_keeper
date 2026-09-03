@@ -30,11 +30,9 @@ const EXPORT_BATCH = 20_000;
 
 // Page text, when the user has opted into syncing it, rides its own shards.
 //
-// The extension is `.jsonl`, not `.ndjson`, and that is load-bearing: importAll below
-// takes *every* .ndjson file it does not own, so a machine still running an older build
-// and sharing this folder would otherwise download every content shard in full, reject
-// every line, and bookmark it. A different extension is skipped at the filename filter
-// for zero bytes read.
+// The extension is `.jsonl`, not `.ndjson`: importAll below takes every .ndjson file
+// it does not own, so an older-build machine sharing this folder would otherwise
+// download and reject every content shard line by line.
 const CONTENT_SHARD_RE = /^(.+)-content-(\d+)\.jsonl$/;
 const CONTENT_SHARD_MAX_BYTES = 8 * 1024 * 1024;
 const CONTENT_EXPORT_BATCH = 2_000;
@@ -47,7 +45,7 @@ const MAX_CONTENT_LINE = 256 * 1024;
 
 /**
  * The File System Access API is Chromium-only, and even there it is withheld from pages
- * with an opaque origin — a `file://` page does not get it. Opening the dashboard by
+ * with an opaque origin: a `file://` page does not get it. Opening the dashboard by
  * double-clicking index.html instead of loading the unpacked extension lands there, and
  * everything else on the page works, so the failure only shows up at the picker.
  */
@@ -132,7 +130,7 @@ export async function loadDirectory() {
 /**
  * Chrome does not always persist a directory grant across browser restarts, so this
  * distinguishes "we have a handle and may use it" from "we have a handle but need the
- * user to click something". `request: true` requires user activation — only pass it
+ * user to click something". `request: true` requires user activation, so only pass it
  * from inside a click handler.
  */
 export async function verifyPermission(handle, { request = false } = {}) {
@@ -204,8 +202,8 @@ async function appendLines(dir, filename, lines) {
 /**
  * Read the tail of every other device's shard.
  *
- * Only the bytes added since last time are read, and a trailing partial line — a real
- * possibility when a cloud client is mid-download — is left unconsumed so it is picked
+ * Only the bytes added since last time are read, and a trailing partial line (a real
+ * possibility when a cloud client is mid-download) is left unconsumed so it is picked
  * up whole on the next pass.
  */
 export async function importAll(handle, onProgress) {
@@ -245,7 +243,7 @@ export async function importAll(handle, onProgress) {
       try {
         const rec = JSON.parse(line);
         // isBlocked and urlHashMatches apply here because this is the only place a
-        // peer's data crosses into this device's archive — the three capture paths in
+        // peer's data crosses into this device's archive; the three capture paths in
         // the service worker already filter through isBlocked before a record exists.
         if (!isValidRecord(rec)) continue;
         if (!(await urlHashMatches(rec))) continue;
@@ -298,7 +296,7 @@ async function currentContentShard(dir, deviceId) {
  * Append page text captured on this device since the last content export.
  *
  * Separate shards from the visit lines because text is per *page* while a visit line is
- * per visit — folding it into the visit stream would re-send the same article once per
+ * per visit, and folding it into the visit stream would re-send the same article once per
  * time you opened it.
  */
 export async function exportContent(handle) {
@@ -331,7 +329,7 @@ export async function exportContent(handle) {
 /**
  * Read the tail of every peer's content shards.
  *
- * Byte-offset bookkeeping is the visit path's, reusing the `imports` store — the
+ * Byte-offset bookkeeping is the visit path's, reusing the `imports` store: the
  * filenames cannot collide, and invariant 6 (never advance past anything but a newline)
  * matters here for exactly the same reason.
  */
@@ -381,8 +379,8 @@ export async function importContent(handle) {
 /**
  * The trust boundary for a peer's page text.
  *
- * Same three questions the visit import asks — is the shape right, was this hash really
- * derived from this URL, and is the host blocked here — plus a size bound, because
+ * Same three questions the visit import asks (is the shape right, was this hash really
+ * derived from this URL, and is the host blocked here), plus a size bound, because
  * unlike a visit line this one is decompressed.
  */
 export async function mergeContentLine(rec) {

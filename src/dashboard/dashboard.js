@@ -30,8 +30,10 @@ const state = {
   filters: {},
   dirHandle: null,
   dirUsable: false,
-  // Incremented per search so a slow query cannot overwrite the results of a faster
-  // one the user triggered afterwards by typing another character.
+  /**
+   * Incremented per search so a slow query cannot overwrite the results of a faster
+   * one the user triggered afterwards by typing another character.
+   */
   generation: 0,
   sortTouched: false,
 };
@@ -40,7 +42,7 @@ const state = {
 
 /**
  * Chrome's own favicon cache, which already holds an icon for anything the browser has
- * loaded — no fetch, no storage, and it covers history archived long before thumbnails
+ * loaded (no fetch, no storage), and it covers history archived long before thumbnails
  * existed. Chrome serves a neutral globe for a URL it has no icon for.
  */
 function faviconUrl(url) {
@@ -75,7 +77,7 @@ function formatAgo(ms) {
 }
 
 function formatBytes(bytes) {
-  if (typeof bytes !== 'number') return '—';
+  if (typeof bytes !== 'number') return '–';
   const units = ['B', 'KB', 'MB', 'GB', 'TB'];
   let n = bytes;
   let unit = 0;
@@ -137,9 +139,9 @@ async function renderStats() {
   $('stat-pages').textContent = nf.format(s.pages);
   $('stat-oldest').textContent = s.oldest
     ? new Date(s.oldest).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
-    : '—';
+    : '–';
   $('stat-span').textContent =
-    s.oldest && s.newest ? nf.format(Math.max(1, Math.round((s.newest - s.oldest) / 86400000))) : '—';
+    s.oldest && s.newest ? nf.format(Math.max(1, Math.round((s.newest - s.oldest) / 86400000))) : '–';
   $('stat-size').textContent = formatBytes(s.bytes);
 
   const list = $('top-hosts');
@@ -147,7 +149,7 @@ async function renderStats() {
   for (const { host, count } of s.topHosts) {
     const li = document.createElement('li');
     const button = document.createElement('button');
-    // Same icon as the result rows, from the same cache — a host has no single page URL,
+    // Same icon as the result rows, from the same cache. A host has no single page URL,
     // so its own root stands in, which is the page Chrome caches an origin's icon under.
     if (host) {
       const icon = document.createElement('img');
@@ -232,7 +234,7 @@ async function runSearch(page = 0) {
   $('next').disabled = !result.hasMore;
 }
 
-// Search on every keystroke, but only after the user pauses — otherwise a fast typist
+// Search on every keystroke, but only after the user pauses, otherwise a fast typist
 // queues a full scan per character.
 let debounceTimer = null;
 function scheduleSearch() {
@@ -336,7 +338,7 @@ function renderRows(rows, sort) {
       sort === 'relevance'
         ? 'Delete this page and all its visits from the archive'
         : 'Delete this visit from the archive';
-    // The visible label is '✕', which screen readers don't announce usefully — reuse
+    // The visible label is '✕', which screen readers don't announce usefully, so reuse
     // the descriptive title text as the accessible name instead of writing a second one.
     remove.setAttribute('aria-label', remove.title);
     remove.addEventListener('click', async () => {
@@ -361,7 +363,7 @@ function renderRows(rows, sort) {
 
 async function refreshSyncPanel() {
   // No picker in this context: say why up front rather than letting the click fail, and
-  // leave the snapshot/import path — which works everywhere — as the way through.
+  // leave the snapshot/import path, which works everywhere, as the way through.
   const blocked = directoryPickerBlockedReason();
   if (blocked) {
     state.dirHandle = null;
@@ -408,9 +410,9 @@ let syncInFlight = false;
 
 async function doSync({ interactive = false } = {}) {
   // The 5-minute timer only checks state.dirUsable, not the button's disabled state, so
-  // it can fire while a manual sync (or another timer tick) is still running. Two
-  // concurrent File System Access writes to the same shard silently clobber each
-  // other — this guard is what makes doSync itself safe to call re-entrantly.
+  // it can fire while a manual sync is still running. Concurrent File System Access
+  // writes to the same shard silently clobber each other, so this guard makes doSync
+  // safe to call re-entrantly.
   if (syncInFlight) return;
   if (!state.dirHandle) return;
   if (!(await verifyPermission(state.dirHandle, { request: interactive }))) {
@@ -457,7 +459,7 @@ async function refreshBackfillBanner() {
 
   const total = await getMeta('backfillTotal', 0);
   const done = await getMeta('backfillDone', 0);
-  banner('backfill-banner', `Importing existing Chrome history — ${nf.format(done)} of ${nf.format(total)} pages`, {
+  banner('backfill-banner', `Importing existing Chrome history: ${nf.format(done)} of ${nf.format(total)} pages`, {
     progress: { max: Math.max(total, 1), value: done },
   });
   return true;

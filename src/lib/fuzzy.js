@@ -8,7 +8,7 @@
 //   3. subsequence                    "gthb" in "github"      (scored by compactness)
 //   4. typo, within an edit distance  "pythom" -> "python"
 //
-// Tier 4 is the expensive one — it is only attempted on a second pass, and only when
+// Tier 4 is the expensive one: it is only attempted on a second pass, and only when
 // the cheap pass came up nearly empty, which is precisely when the user has mistyped.
 // Even then it never reaches the edit-distance loop for most words; see typoScore.
 
@@ -82,7 +82,7 @@ function subsequenceSpan(token, hay) {
 }
 
 // Scratch rows for the edit-distance table, reused across calls. Allocating these per
-// call dominated the typo pass — it runs a million-plus times over a large archive.
+// call dominated the typo pass, which runs a million-plus times over a large archive.
 const dpA = new Uint16Array(MAX_WORD + 1);
 const dpB = new Uint16Array(MAX_WORD + 1);
 
@@ -125,7 +125,7 @@ export function boundedEditDistance(a, b, maxDist) {
  *
  * Word boundaries are walked by index, accumulating a character-presence mask as we
  * go. A word can only be within maxDist edits of the token if at most maxDist of the
- * token's distinct characters are missing from it — that test is a couple of integer
+ * token's distinct characters are missing from it, and that test is a couple of integer
  * ops and rejects the overwhelming majority of words before any string is allocated
  * or any table filled in.
  */
@@ -195,10 +195,10 @@ function scoreToken(token, page, allowTypos) {
 
 /**
  * @param {object[]|null} contentHits  Parallel to prepared.tokens. Each entry is
- *   `{hashes: Set<urlHash>, fuzzy: boolean}` — the pages whose *text* carries that term,
+ *   `{hashes: Set<urlHash>, fuzzy: boolean}`, the pages whose *text* carries that term,
  *   resolved from the term index by search.js. Null when page text is not indexed.
  * @returns {number} 0 when any token fails to match, otherwise a relevance score.
- *   All tokens must match, which is the AND semantics of the original exact search — but
+ *   All tokens must match, which is the AND semantics of the original exact search, but
  *   each one may satisfy that through the title/URL haystack *or* through page text, so
  *   "react useEffect" can match a page titled "react" that only mentions useEffect.
  */

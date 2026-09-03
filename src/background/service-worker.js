@@ -1,14 +1,14 @@
 // History Keeper background worker.
 //
 // Two capture paths, deliberately overlapping:
-//   1. chrome.history.onVisited — real time, fires while the worker is alive.
-//   2. A 15-minute alarm sweep — re-queries chrome.history over a window that overlaps
+//   1. chrome.history.onVisited: real time, fires while the worker is alive.
+//   2. A 15-minute alarm sweep, re-querying chrome.history over a window that overlaps
 //      the last sweep, so visits made while the worker was evicted are still archived.
 // The overlap costs nothing because the visit id is a content hash plus timestamp, so
 // re-reading the same visit is a no-op.
 //
 // Neither path knows the page title at the moment it captures a visit, so a third,
-// visit-free pass re-reads titles a few seconds later — see scheduleRetitle below.
+// visit-free pass re-reads titles a few seconds later, see scheduleRetitle below.
 //
 // chrome.history has exactly two events, onVisited and onVisitRemoved. There is no title
 // event to listen for; reaching for one throws at module scope and takes the whole worker
@@ -60,7 +60,7 @@ const RETITLE_DELAY_MS = 6_000;
 const RETITLE_LOOKBACK_MS = 5 * 60 * 1000;
 
 // Pages kept in the text index. Compressed, a page averages ~2KB, so this is on the order
-// of 40MB — enough to cover a long stretch of real browsing without the store becoming
+// of 40MB, enough to cover a long stretch of real browsing without the store becoming
 // something the user has to think about.
 const CONTENT_MAX_ROWS = 20_000;
 
@@ -134,7 +134,7 @@ async function captureVisit(item) {
  *
  * Chrome records a visit the moment the navigation commits and only learns the page
  * title once the renderer reports it, so item.title above is empty for any URL being
- * seen for the first time — and on pushState sites like YouTube, which mint a history
+ * seen for the first time, and on pushState sites like YouTube, which mint a history
  * entry per video, essentially always. A few seconds later Chrome has the title, so a
  * second read gets it.
  *
@@ -210,9 +210,8 @@ async function sweep() {
 
   const { added, titled } = await putVisits(records, { assignLocalSeq: true });
   // chrome.history.search returns newest-first, so hitting maxResults means the older
-  // part of [since, now) was never actually searched. Advancing lastSweepTime to `now`
-  // would mark that unsearched stretch as swept and it would never be retried — instead
-  // stop at the oldest item we did see, and the next sweep picks up right behind it.
+  // part of [since, now) was never searched. Advancing lastSweepTime to `now` would mark
+  // that stretch as swept and it would never be retried, so stop at the oldest item seen.
   const truncated = items.length >= SWEEP_MAX_RESULTS;
   const nextSweepTime = truncated ? Math.min(...items.map((item) => item.lastVisitTime)) : now;
   await setManyMeta({ lastSweepTime: nextSweepTime, lastSweepAdded: added });
@@ -329,7 +328,7 @@ async function finishBackfill() {
  */
 async function captureText(tabId, tab) {
   // Attribution comes from Chrome's own tab record. The injected function returns only
-  // text and a thumbnail — a page must never get to say which URL its text is filed
+  // text and a thumbnail; a page must never get to say which URL its text is filed
   // under.
   const url = tab?.url;
   if (!isArchivable(url)) return;
@@ -348,7 +347,7 @@ async function captureText(tabId, tab) {
     });
   } catch {
     // The tab closed, navigated away, or is one Chrome will not inject into (a PDF
-    // viewer, the web store). Nothing to repair — the next visit tries again.
+    // viewer, the web store). Nothing to repair; the next visit tries again.
     return;
   }
 
@@ -368,7 +367,7 @@ async function captureText(tabId, tab) {
 }
 
 /**
- * Runs inside the page, not the worker — no closure over anything above, because
+ * Runs inside the page, not the worker: no closure over anything above, because
  * executeScript serialises the function itself.
  *
  * The thumbnail is the page's own preview image, downscaled to a data URL right there in

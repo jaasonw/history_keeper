@@ -28,10 +28,9 @@ const search = await load('lib/search.js');
 const blocklist = await load('lib/blocklist.js');
 const fuzzy = await load('lib/fuzzy.js');
 const content = await load('lib/content.js');
-// Only importFromFile is exercised here — every other export needs File System Access
-// handles, which do not exist under Node — but nothing at module scope needs the DOM
-// or that API, so the import boundary itself (the trust boundary for peer data) is
-// reachable from this suite with a plain { text: async () => str } stub for File.
+// Only importFromFile is exercised here; every other export needs File System Access
+// handles, which do not exist under Node. The import boundary (the trust boundary for
+// peer data) is reachable from this suite with a plain { text: async () => str } stub.
 const sync = await load('lib/sync.js');
 
 let passed = 0;
@@ -78,7 +77,7 @@ await test('hostOf strips a trailing dot so an FQDN still matches blocklist patt
 console.log('\ndb.js');
 
 await test('a failed open does not wedge every later openDb() behind the same rejection', async () => {
-  // Simulates onblocked/onerror on the underlying indexedDB.open — without this,
+  // Simulates onblocked/onerror on the underlying indexedDB.open. Without this,
   // openDb() memoises the rejected promise forever and every future caller (including
   // the service worker's own capture paths) fails until the context is torn down.
   const realOpen = globalThis.indexedDB.open.bind(globalThis.indexedDB);
@@ -142,7 +141,7 @@ await test('localSeq is assigned locally and withheld on import', async () => {
 await test('an imported record carrying a poisoned localSeq has it stripped, not kept', async () => {
   // A hand-edited or corrupted shard line could include a localSeq field. If putVisits
   // kept it, this device would believe it already exported that sequence number and
-  // stop exporting its own future visits — a permanent, silent sync failure.
+  // stop exporting its own future visits: a permanent, silent sync failure.
   const poisoned = await mk('https://poisoned.test/p', 'Poisoned', 4, 'devB');
   poisoned.localSeq = Number.MAX_SAFE_INTEGER;
   await db.putVisits([poisoned], { assignLocalSeq: false });
@@ -278,7 +277,7 @@ await test('a pattern with a scheme, path, or port can never match hostOf() and 
     'https://mybank.example',
     'mybank.example/statements',
     'mybank.example:8443',
-    '/admin', // one leading slash only — not a full /regex/flags pair
+    '/admin', // one leading slash only, not a full /regex/flags pair
     'ok.test',
   ]);
   assert.equal(rules.length, 1, 'only the syntactically-valid bare host compiles');
@@ -337,7 +336,7 @@ await test('isValidRecord rejects fractional times, unarchivable schemes, and ov
   assert.equal(
     record.isValidRecord({ url: 'javascript:alert(1)', urlHash: jsHash, host: '', title: '', id: `${jsHash}:1`, visitTime: 1 }),
     false,
-    'a non-archivable scheme must not reach putVisits — dashboard.js renders url as a clickable href',
+    'a non-archivable scheme must not reach putVisits: dashboard.js renders url as a clickable href',
   );
 
   assert.equal(
@@ -355,7 +354,7 @@ await test('urlHashMatches rejects a hash that was not actually derived from the
   assert.equal(
     await record.urlHashMatches(spoofed),
     false,
-    'isValidRecord alone only checks the record is internally consistent — this catches a ' +
+    'isValidRecord alone only checks the record is internally consistent; this catches a ' +
       'shard line claiming a benign hash for a different url',
   );
 });
@@ -388,7 +387,7 @@ await test('importFromFile filters blocked hosts and hash/url mismatches, not ju
   const good = await mk('https://imported.test/ok', 'OK', 50, 'devB');
   const blockedRec = await mk('https://blocked.test/x', 'Blocked', 50, 'devB');
 
-  // Claims a foreign hash for its url — id is recomputed so it still passes the
+  // Claims a foreign hash for its url; id is recomputed so it still passes the
   // internal-consistency check inside isValidRecord; only urlHashMatches catches this.
   const spoofed = await mk('https://spoofed.test/x', 'Spoofed', 50, 'devB');
   spoofed.urlHash = await record.urlHash('https://someone-else.test/');
@@ -418,7 +417,7 @@ console.log('\nfuzzy search');
 const fuzzyPages = [
   ['https://github.com/anthropics/claude-code', 'GitHub - anthropics/claude-code', 3],
   ['https://gitlab.com/foo/bar', 'GitLab foo/bar', 1],
-  ['https://docs.python.org/3/library/asyncio.html', 'asyncio — Asynchronous I/O', 2],
+  ['https://docs.python.org/3/library/asyncio.html', 'asyncio: Asynchronous I/O', 2],
   ['https://news.ycombinator.com/item?id=1', 'Hacker News discussion', 1],
 ];
 for (const [url, title, visits] of fuzzyPages) {
@@ -447,7 +446,7 @@ await test('subsequence matches, ranked by how tightly it fits', async () => {
 
 await test('a typo still finds the page', async () => {
   // "pythom" is not a substring, and its 'm' appears nowhere in the haystack, so the
-  // cheap tiers all fail — only the edit-distance pass can rescue it.
+  // cheap tiers all fail; only the edit-distance pass can rescue it.
   const hit = await topHit('pythom');
   assert.ok(hit, 'expected the typo pass to produce a hit');
   assert.match(hit.url, /docs\.python\.org/);
@@ -470,7 +469,7 @@ await test('relevance and chronological paths agree on what matches', async () =
   const chronological = await search.query({ text: 'github' });
 
   // Both paths run the same matcher. On this tiny corpus the cheap pass finds only
-  // github.com, so the typo pass also runs and pulls in gitlab.com — "github" and
+  // github.com, so the typo pass also runs and pulls in gitlab.com: "github" and
   // "gitlab" are two edits apart.
   assert.equal(relevance.rows.length, 2);
   assert.match(relevance.rows[0].url, /github\.com/, 'the exact match outranks the typo');
@@ -607,7 +606,7 @@ await test('tokenise does not shred non-Latin script', () => {
 });
 
 await test('gzip round-trips, including non-ASCII', async () => {
-  const original = TEXT + ' — naïve café 日本語';
+  const original = TEXT + ' – naïve café 日本語';
   const bytes = await content.gzip(original);
   assert.ok(bytes instanceof Uint8Array);
   assert.equal(await content.gunzip(bytes), original);
@@ -651,7 +650,7 @@ await test('a snippet is wide enough to read and marks every hit in the window',
   assert.ok(text.startsWith('…'), 'a window taken from mid-document says so');
   assert.ok(parts.some((p) => p.hit && p.text === 'kestrel'));
 
-  // Segments reassemble into a contiguous slice — no character duplicated or dropped.
+  // Segments reassemble into a contiguous slice: no character duplicated or dropped.
   assert.ok(prose.includes(text.replace(/…/g, '')));
 });
 
@@ -678,7 +677,7 @@ await test('putContent skips a still-fresh capture and replaces a stale one', as
 
 await test('a thumbnail lands on a row captured before thumbnails existed', async () => {
   const THUMB = 'data:image/webp;base64,AAAA';
-  // The row is still fresh, so no re-capture happens — the thumbnail is patched in on
+  // The row is still fresh, so no re-capture happens: the thumbnail is patched in on
   // its own, which is what keeps pre-existing rows from staying blank for a whole TTL.
   assert.equal(await db.putContent(cellHash, CELL_URL, TEXT, undefined, { thumb: THUMB }), false);
 
@@ -772,8 +771,8 @@ await test('AND holds across the two lanes', async () => {
 await test('short tokens do not drag the corpus in through prefix matching', async () => {
   // A prefix range on one or two characters covers most of the vocabulary, so page text
   // is skipped below the minimum term length. A snippet is only ever set from a content
-  // hit, which makes it the honest witness here — the title/URL lane still matches short
-  // tokens by subsequence, exactly as it did before any of this.
+  // hit, which makes it the honest witness here: the title/URL lane still matches short
+  // tokens by subsequence.
   const long = await search.relevanceQuery({ text: 'mit' });
   const hit = long.rows.find((r) => r.url === CELL_URL);
   assert.ok(hit && snippetText(hit).includes('itochondri'), 'three characters reach the text');
@@ -861,7 +860,7 @@ await test('switching capture off leaves stored text searchable', async () => {
 await test('a content shard is invisible to the visit importer', async () => {
   // An older build takes every .ndjson in the folder that is not its own. If content
   // shards ended in .ndjson it would download each one whole, reject every line, and
-  // bookmark it — forever. The extension is what keeps them out of its way.
+  // bookmark it forever. The extension is what keeps them out of its way.
   const visitShardFilter = (name) => name.endsWith('.ndjson');
   assert.equal(visitShardFilter('devB-content-001.jsonl'), false);
   assert.equal(visitShardFilter('devB-2026-01.ndjson'), true);
@@ -876,7 +875,7 @@ const peerLine = async (url, text, capturedAt = 1_700_000_000_000) => ({
 
 await test('an exported content line carries the url its hash came from', async () => {
   // Without the url on the row, every exported line would reach a peer with url '' and be
-  // rejected by the trust boundary — a sync that silently transfers nothing.
+  // rejected by the trust boundary: a sync that silently transfers nothing.
   const pending = await db.contentToExport(0, 100);
   assert.ok(pending.length > 0);
   for (const row of pending) {
@@ -938,9 +937,8 @@ search.invalidatePageCache();
 await test('the requested origins are exactly what the manifest declares', async () => {
   // chrome.permissions.request matches its argument against the manifest literally. A
   // mismatch is not a lint error, it is "Only permissions specified in the manifest may
-  // be requested" thrown at the user the first time they tick the box — which is exactly
-  // how <all_urls> failed here, Chrome having refused that literal in
-  // optional_host_permissions.
+  // be requested" thrown at the user. That is exactly how <all_urls> failed here, Chrome
+  // having refused that literal in optional_host_permissions.
   const { readFile } = await import('node:fs/promises');
   const manifest = JSON.parse(await readFile(new URL('../manifest.json', SRC), 'utf8'));
 
@@ -955,12 +953,9 @@ await test('the requested origins are exactly what the manifest declares', async
 console.log('\nservice worker');
 
 await test('the worker evaluates against documented chrome APIs only', async () => {
-  // Every listener is registered at module scope, so reaching for a chrome.* API that
-  // does not exist is not a missing feature — it is a TypeError that aborts module
-  // evaluation and silently unregisters onVisited with it, capturing nothing at all.
-  // The stub below is deliberately exhaustive: it carries what the API reference says
-  // exists and not one property more, so an invented API throws here instead of in
-  // someone's browser.
+  // A chrome.* API that does not exist aborts module evaluation with a TypeError and
+  // silently unregisters onVisited, capturing nothing. The stub below is deliberately
+  // exhaustive, so an invented API throws here instead of in someone's browser.
   const event = () => ({ addListener() {} });
   Object.assign(globalThis.chrome, {
     alarms: {
@@ -976,8 +971,10 @@ await test('the worker evaluates against documented chrome APIs only', async () 
       async getVisits() { return []; },
     },
     runtime: { onInstalled: event(), onStartup: event(), onMessage: event() },
-    // onUpdated fires without the "tabs" permission; the url field it carries is what
-    // the optional <all_urls> grant unlocks.
+    /**
+     * onUpdated fires without the "tabs" permission; the url field it carries is what
+     * the optional <all_urls> grant unlocks.
+     */
     tabs: { onUpdated: event() },
     scripting: { async executeScript() { return []; } },
     permissions: {

@@ -1,6 +1,6 @@
 // IndexedDB layer for History Keeper.
 //
-// Shared verbatim by the service worker and by every extension page — they all run on
+// Shared verbatim by the service worker and by every extension page: they all run on
 // the same chrome-extension:// origin and therefore see the same database. Nothing in
 // here may touch chrome.* APIs, so it stays usable from both contexts.
 
@@ -39,7 +39,7 @@ function migrate(db, oldVersion) {
     visits.createIndex('host', 'host');
     visits.createIndex('urlHash', 'urlHash');
     // Only records this device captured carry `localSeq`, so records imported from
-    // other devices are absent from this index — exactly what the export delta wants.
+    // other devices are absent from this index, exactly what the export delta wants.
     visits.createIndex('localSeq', 'localSeq');
 
     // Distinct-URL rollup. Keyword search and domain stats scan this (tens of
@@ -127,7 +127,7 @@ export async function storageBytes() {
  * Records whose `id` already exists never produce a second row: that is the dedupe
  * rule that lets the sweep overlap with onVisited, lets the backfill re-run, and lets
  * the same shard be imported twice, all without producing duplicates. The one thing
- * such a record may still do is fill in a missing title — see below.
+ * such a record may still do is fill in a missing title, see below.
  *
  * @param {object[]} records  Output of makeRecord() in record.js.
  * @param {boolean} assignLocalSeq  True for locally captured visits (they need a
@@ -155,15 +155,11 @@ export async function putVisits(records, { assignLocalSeq = false } = {}) {
   for (const rec of records) {
     const existing = await reqToPromise(visits.get(rec.id));
     if (existing) {
-      // The visit is already archived, but its title may not be. onVisited fires when
-      // the navigation commits, before the document title exists — and on pushState
-      // sites like YouTube, long before it — so a freshly captured visit is routinely
-      // title-less. The sweep, a backfill re-run and another device's shard all carry
-      // the real title later; discarding it here would freeze the blank in forever.
+      // onVisited fires before the title exists, so a visit is routinely title-less;
+      // fill it in later rather than freezing the blank in forever.
       //
-      // Strictly empty -> non-empty. A title that merely *differs* is left alone,
-      // because titles carrying a live counter ("(3) Inbox", a YouTube view count)
-      // would otherwise be rewritten, and re-queued for export, on every sweep.
+      // Strictly empty -> non-empty: a title that merely *differs* (a live counter like
+      // "(3) Inbox") is left alone, or it gets re-queued for export on every sweep.
       if (rec.title && !existing.title) {
         existing.title = rec.title;
         // Re-stamping puts the repair back in the export delta so other devices holding
@@ -184,7 +180,7 @@ export async function putVisits(records, { assignLocalSeq = false } = {}) {
 
     const row = { ...rec };
     // A shard file can carry a localSeq field (a hand-edited or corrupted line) even
-    // though this import didn't assign one — keeping it would make this device believe
+    // though this import didn't assign one, keeping it would make this device believe
     // it already exported someone else's sequence number and stop exporting its own.
     if (assignLocalSeq) row.localSeq = ++seq;
     else delete row.localSeq;
@@ -201,8 +197,8 @@ export async function putVisits(records, { assignLocalSeq = false } = {}) {
         page.lastSeen = rec.visitTime;
         if (rec.title) page.title = rec.title;
       } else if (rec.title && !page.title) {
-        // The newest-known visit still has no title, but this older one — arriving late
-        // from a backfill or another device's shard — does. Take it rather than leaving
+        // The newest-known visit still has no title, but this older one (arriving late
+        // from a backfill or another device's shard) does. Take it rather than leaving
         // the page permanently blank until something newer happens to carry a title.
         page.title = rec.title;
       }
@@ -229,7 +225,7 @@ export async function putVisits(records, { assignLocalSeq = false } = {}) {
  * Fill in the title on every archived visit to one URL that is missing one, and on its
  * page rollup.
  *
- * This is what the worker's deferred re-title pass feeds — Chrome only learns the title
+ * This is what the worker's deferred re-title pass feeds: Chrome only learns the title
  * a second or two after it records the visit, so the title arrives with no visit
  * attached to hang it on.
  *
@@ -291,7 +287,7 @@ export async function deleteVisit(id) {
       pages.delete(visit.urlHash);
       pageRemoved = true;
     } else {
-      // Only recompute if the deleted visit could actually have set one of these — the
+      // Only recompute if the deleted visit could actually have set one of these; the
       // common case (deleting some visit in the middle of a page's history) never needs
       // the extra scan.
       if (visit.visitTime === page.firstSeen || visit.visitTime === page.lastSeen) {
@@ -309,9 +305,8 @@ export async function deleteVisit(id) {
   }
   await txDone(tx);
   // Page text lives in a second database, so this cannot join the transaction above.
-  // Afterwards is the right side here: the archive row is what the user asked to remove,
-  // and a failure leaves an orphan content row, which is inert — nothing resolves a hit
-  // that has no page behind it.
+  // Afterwards is the right side: a failure leaves an orphan content row, which is
+  // inert since nothing resolves a hit with no page behind it.
   if (pageRemoved) await deleteContent(visit.urlHash);
   return true;
 }
@@ -391,17 +386,19 @@ export function cursorEach(source, range, direction, onRow) {
 
 // ---------------------------------------------------------------- page text
 
-// Captured page text lives in its own database, deliberately outside DB_VERSION.
-//
-// Bumping the archive's version would be a one-way door: every build already shipped
-// hardcodes DB_VERSION = 1, and indexedDB.open at a *lower* version than the one on disk
-// fails with VersionError. Since openDb() backs every context, a user who rolled back to
-// an earlier build would get an extension that could no longer capture, search or sync,
-// and no patch to the new code could rescue them because the old code is already out
-// there. A second database is invisible to that code instead.
-//
-// It also means page text is derived, disposable state: clearing it wholesale cannot
-// touch the archive, because the archive is not reachable from here.
+/**
+ * Captured page text lives in its own database, deliberately outside DB_VERSION.
+ *
+ * Bumping the archive's version would be a one-way door: every build already shipped
+ * hardcodes DB_VERSION = 1, and indexedDB.open at a *lower* version than the one on disk
+ * fails with VersionError. Since openDb() backs every context, a user who rolled back to
+ * an earlier build would get an extension that could no longer capture, search or sync,
+ * and no patch to the new code could rescue them because the old code is already out
+ * there. A second database is invisible to that code instead.
+ *
+ * It also means page text is derived, disposable state: clearing it wholesale cannot
+ * touch the archive, because the archive is not reachable from here.
+ */
 export const CONTENT_DB_NAME = 'historykeeper-content';
 
 // Re-capturing on every visit would rewrite hundreds of KB a day for pages you merely
@@ -420,10 +417,10 @@ export function openContentDb() {
         // resolves to the pages carrying it without scanning any text.
         store.createIndex('tokens', 'tokens', { multiEntry: true });
         store.createIndex('capturedAt', 'capturedAt');
-        // Only text captured *on this device* carries exportAt, so — exactly as with
-        // visits and localSeq — this index is the set of rows still to be exported.
-        // Text imported from a peer has no exportAt, so it is absent from the index and
-        // can never be re-exported under this device's shard name.
+        // Only text captured *on this device* carries exportAt, exactly as with visits
+        // and localSeq, so this index is the set of rows still to be exported. Text
+        // imported from a peer has no exportAt, so it can never be re-exported under
+        // this device's shard name.
         store.createIndex('exportAt', 'exportAt');
       };
       req.onsuccess = () => resolve(req.result);
@@ -438,13 +435,11 @@ export function openContentDb() {
   return contentPromise;
 }
 
-// capturedAt doubles as the export cursor, so two captures landing in the same
-// millisecond would let the second slip past an exclusive range. This keeps the stamp
-// strictly increasing within a context for a pound of effort.
+// capturedAt doubles as the export cursor, so this keeps it strictly increasing, else
+// two captures in the same millisecond could slip past a range.
 //
-// It is the default for `now` rather than something applied inside putContent, so a
-// caller passing an explicit timestamp — an import carrying a peer's stamp, a test —
-// gets exactly the timestamp it asked for.
+// Default for `now`, not applied inside putContent, so a caller passing an explicit
+// timestamp (an import, a test) gets exactly what it asked for.
 let lastCapturedAt = 0;
 
 function nextStamp() {
@@ -488,9 +483,11 @@ export async function putContent(
   const gz = await gzip(clean);
   const row = {
     urlHash,
-    // The url is stored, not just its hash: a content shard line has to carry it so the
-    // receiving device can re-derive the hash and check it, and `host` falls out of it
-    // for the blocklist purge.
+    /**
+     * The url is stored, not just its hash: a content shard line has to carry it so the
+     * receiving device can re-derive the hash and check it, and `host` falls out of it
+     * for the blocklist purge.
+     */
     url,
     host: hostOf(url),
     gz,
@@ -531,8 +528,8 @@ export async function contentToExport(sinceExportAt, limit) {
 
 /**
  * Thumbnails for the rows being rendered, keyed by urlHash. Hashes with no stored
- * thumbnail — which is every page captured before this feature, and every page without a
- * preview image — are simply absent from the map.
+ * thumbnail (every page captured before this feature, and every page without a
+ * preview image) are simply absent from the map.
  *
  * Guarded on contentStoreExists so that merely opening the dashboard does not conjure a
  * text database for a user who never turned page capture on.

@@ -44,7 +44,7 @@ export function compile(patterns) {
 
     const wildcard = pattern.startsWith('*.');
     const bare = wildcard ? pattern.slice(2) : pattern;
-    // hostOf() always returns a bare hostname — no scheme, path, query or port. A
+    // hostOf() always returns a bare hostname (no scheme, path, query or port). A
     // pattern carrying any of those can never equal it, so it would silently compile
     // into a rule that never fires. Skip it instead of pretending it works.
     if (/[/\s?#]/.test(bare) || bare.includes('://') || /:\d/.test(bare)) continue;

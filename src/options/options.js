@@ -24,15 +24,14 @@ async function load() {
   const complete = await getMeta('backfillComplete', false);
   $('maintenance-detail').textContent =
     `${nf.format(visits)} visits across ${nf.format(pages)} pages. ` +
-    (complete ? 'Initial import complete.' : `Initial import running — ${nf.format(pending)} pages queued.`);
+    (complete ? 'Initial import complete.' : `Initial import running: ${nf.format(pending)} pages queued.`);
 }
 
 // ------------------------------------------------------------------ page text
 
-// Declared optionally in the manifest, so it is absent from the install prompt and an
-// existing install gains nothing until this box is ticked. The origin list is shared with
-// the worker rather than repeated — Chrome matches the request against the manifest
-// literally, so the two drifting apart is a runtime failure, not a lint error.
+// Declared optionally in the manifest, so it is absent from the install prompt until
+// this box is ticked. The origin list is shared with the worker rather than repeated:
+// Chrome matches the request against the manifest literally.
 const TEXT_ACCESS = { origins: TEXT_ORIGINS };
 
 function formatBytes(bytes) {
@@ -42,7 +41,7 @@ function formatBytes(bytes) {
 }
 
 async function loadContent() {
-  // The permission is the real authority — it can be revoked from chrome://extensions
+  // The permission is the real authority; it can be revoked from chrome://extensions
   // without this page ever hearing about it, so the stored flag follows it, never leads.
   const granted = await chrome.permissions.contains(TEXT_ACCESS);
   const enabled = (await getMeta('contentEnabled', false)) && granted;
@@ -57,7 +56,7 @@ async function loadContent() {
   $('content-detail').textContent = rows
     ? `${nf.format(rows)} page${rows === 1 ? '' : 's'} indexed, ${formatBytes(bytes)} compressed.`
     : enabled
-      ? 'No pages indexed yet — text is captured as you browse, not backdated.'
+      ? 'No pages indexed yet. Text is captured as you browse, not backdated.'
       : 'No page text stored.';
   $('forget-content').disabled = rows === 0;
 }
@@ -83,10 +82,8 @@ $('content-toggle').addEventListener('change', async (event) => {
     // request() must run inside the user gesture that ticked the box, so it is awaited
     // here rather than behind any other await.
     //
-    // It can also *throw* rather than resolve false — a manifest whose
-    // optional_host_permissions do not literally match TEXT_ORIGINS, or an extension
-    // reloaded without its manifest being re-read. Left uncaught that surfaces only in
-    // the console, with the box still ticked and claiming a feature that is not on.
+    // It can also *throw* rather than resolve false, e.g. a mismatched manifest. Left
+    // uncaught, the box stays ticked while claiming a feature that is not on.
     let granted = false;
     try {
       granted = await chrome.permissions.request(TEXT_ACCESS);
@@ -97,7 +94,7 @@ $('content-toggle').addEventListener('change', async (event) => {
     }
     if (!granted) {
       event.target.checked = false;
-      $('content-status').textContent = 'Chrome declined the permission — nothing changed.';
+      $('content-status').textContent = 'Chrome declined the permission. Nothing changed.';
       return;
     }
     await setMeta('contentStoreExists', true);
@@ -134,13 +131,13 @@ $('save').addEventListener('click', async () => {
   await setPatterns(patterns);
 
   // A pattern with a scheme, path, or port (https://x.com, x.com/page) can never equal
-  // hostOf()'s bare hostname, so compile() silently drops it — tell the user, rather
+  // hostOf()'s bare hostname, so compile() silently drops it: tell the user, rather
   // than reporting a count that includes patterns doing nothing.
   const working = compile(patterns).length;
   const nonComment = patterns.filter((p) => !p.startsWith('#')).length;
   const skipped = nonComment - working;
   $('blocklist-status').textContent = skipped
-    ? `Saved ${patterns.length} pattern${patterns.length === 1 ? '' : 's'} — ` +
+    ? `Saved ${patterns.length} pattern${patterns.length === 1 ? '' : 's'}: ` +
       `${skipped} will never match (remove any scheme, path, or port) and were skipped.`
     : `Saved ${patterns.length} pattern${patterns.length === 1 ? '' : 's'}. New visits are filtered immediately.`;
 });
@@ -165,7 +162,7 @@ $('purge').addEventListener('click', async () => {
 });
 
 $('snapshot-days').addEventListener('change', async (event) => {
-  // The input's min/max only constrain the spinner — a typed value still arrives as
+  // The input's min/max only constrain the spinner; a typed value still arrives as
   // anything at all, including empty, so it is clamped here before it reaches the alarm.
   const days = Math.round(Number(event.target.value));
   if (!Number.isFinite(days) || days < 1 || days > 365) {

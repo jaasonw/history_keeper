@@ -75,7 +75,7 @@ async function getPageCache() {
       firstSeen: page.firstSeen,
       lastSeen: page.lastSeen,
       visitCount: page.visitCount,
-      // Lowercased once here rather than per keystroke.
+      /** Lowercased once here rather than per keystroke. */
       hay: `${title}\n${page.url}`.toLowerCase(),
       titleLen: title.length,
     });
@@ -105,7 +105,7 @@ async function contentIndexed() {
 /**
  * Every distinct term in the corpus, with its character-presence mask.
  *
- * 'nextunique' over the multiEntry index *is* the term dictionary — the platform already
+ * 'nextunique' over the multiEntry index *is* the term dictionary: the platform already
  * maintains it, so there is no second store to keep consistent.
  *
  * ponytail: full walk of the tokens index. If it gets slow, maintain a `terms` store
@@ -135,8 +135,8 @@ async function getDictionary() {
 /**
  * Real terms within maxDist edits of a mistyped token.
  *
- * Same two-step filter the haystack typo pass uses — length window, then the mask
- * popcount — so the edit-distance table is only filled in for genuine candidates.
+ * Same two-step filter the haystack typo pass uses (length window, then the mask
+ * popcount), so the edit-distance table is only filled in for genuine candidates.
  */
 function expandTerm(token, dict) {
   const maxDist = token.maxDist;
@@ -197,7 +197,7 @@ async function contentHitsFor(prepared, allowTypos) {
     let terms = [token.text];
     let fuzzy = false;
 
-    // Only once the cheap pass has already come up short — the same trigger the haystack
+    // Only once the cheap pass has already come up short: the same trigger the haystack
     // typo tier uses, and for the same reason.
     if (hashes.size === 0 && allowTypos) {
       const expansions = expandTerm(token, await getDictionary());
@@ -238,7 +238,7 @@ async function rank(pages, prepared, host) {
  * What to emphasise in the label a row displays.
  *
  * A token that appears literally is its own answer. One that does not got here through
- * the typo tier, so the word it was closest to is what the user should see lit up —
+ * the typo tier, so the word it was closest to is what the user should see lit up:
  * `nearestWord` is the same walk the scorer already made, asked for the word instead of
  * the score. The subsequence tier deliberately contributes nothing: its characters are
  * scattered across the string, and emphasising them individually reads as corruption.
@@ -338,15 +338,17 @@ export async function relevanceQuery({ text, host = '', from = null, to = null, 
       visitTime,
       visitCount: page.visitCount,
       score,
-      // Filled in below, only for the rows that actually matched on text. Segments, not
-      // a string — see snippetAround.
+      /**
+       * Filled in below, only for the rows that actually matched on text. Segments, not
+       * a string, see snippetAround.
+       */
       snippet: null,
       titleParts: labelParts(page.title, page.url, prepared),
     });
   }
 
   // Decompressing is worth it only for a page whose text is *why* it is here, and only
-  // for the rows being rendered — never for the thousands merely scored.
+  // for the rows being rendered, never for the thousands merely scored.
   if (contentHits) {
     for (const row of rows) {
       const terms = matchedTerms(contentHits, row.urlHash);
@@ -442,7 +444,7 @@ export async function stats() {
 
 /**
  * Visits grouped by originating device. Kept out of stats() because it is a full scan
- * of the visit store — the dashboard only runs it when that panel is expanded.
+ * of the visit store; the dashboard only runs it when that panel is expanded.
  */
 export async function deviceBreakdown() {
   const db = await openDb();

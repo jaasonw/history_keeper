@@ -1,6 +1,6 @@
 // Page-text helpers: tokenising for the term index, gzip for storage.
 //
-// Pure — no chrome.*, no DOM, no IndexedDB — so the service worker, the pages and the
+// Pure: no chrome.*, no DOM, no IndexedDB, so the service worker, the pages and the
 // tests all import it, and db.js can depend on it without a cycle.
 
 /**
@@ -16,7 +16,7 @@ export const MAX_TEXT_CHARS = 64_000;
  * Not `<all_urls>`: Chrome refuses that literal in `optional_host_permissions` and a
  * request for it fails with "Only permissions specified in the manifest may be
  * requested". Explicit schemes are what it accepts, and they must match the manifest
- * exactly — which is why this lives in one place that the worker and the options page
+ * exactly, which is why this lives in one place that the worker and the options page
  * both read, rather than being spelled out twice and drifting.
  *
  * `file:` and `ftp:` are archivable but not listed: Chrome gates file access behind its
@@ -63,8 +63,10 @@ export function normaliseText(text) {
   return String(text).replace(/\s+/g, ' ').trim().slice(0, MAX_TEXT_CHARS);
 }
 
-// CompressionStream is native in both the worker and the pages, so compression costs a
-// helper pair rather than a dependency. Page text gzips at roughly 4:1.
+/**
+ * CompressionStream is native in both the worker and the pages, so compression costs a
+ * helper pair rather than a dependency. Page text gzips at roughly 4:1.
+ */
 export async function gzip(text) {
   const stream = new Blob([text]).stream().pipeThrough(new CompressionStream('gzip'));
   return new Uint8Array(await new Response(stream).arrayBuffer());
@@ -87,8 +89,8 @@ const WORD_CHAR = /[\p{L}\p{N}]/u;
 /**
  * Character ranges to highlight, widened to whole words and merged where they overlap.
  *
- * Widened because a term reaches the index by prefix — typing `mit` matches the stored
- * term `mitochondrion` — and lighting up three letters of a long word reads as a
+ * Widened because a term reaches the index by prefix (typing `mit` matches the stored
+ * term `mitochondrion`), and lighting up three letters of a long word reads as a
  * rendering bug rather than as an answer. Merged because two query tokens landing on the
  * same word would otherwise produce overlapping, double-counted spans.
  */
@@ -125,7 +127,7 @@ function hitRanges(hay, terms) {
 /**
  * Split the whole of `text` into segments, marking every occurrence of `terms`.
  *
- * The no-window sibling of snippetAround, for short strings a result row shows in full —
+ * The no-window sibling of snippetAround, for short strings a result row shows in full:
  * a page title, or the URL standing in for one.
  *
  * @returns {{text: string, hit: boolean}[]}
@@ -161,7 +163,7 @@ export function snippetAround(text, terms, width = SNIPPET_WIDTH) {
 
   const ranges = hitRanges(text.toLowerCase(), terms);
   if (!ranges.length) {
-    // No term survived into the stored text — it matched a term that the text cap cut, or
+    // No term survived into the stored text: it matched a term that the text cap cut, or
     // one only the tokeniser produced. The head of the page is still better than nothing.
     const head = text.slice(0, width).trim();
     return head ? [{ text: head, hit: false }] : [];
@@ -197,7 +199,7 @@ export function snippetAround(text, terms, width = SNIPPET_WIDTH) {
  * Base64, because a content shard is still NDJSON.
  *
  * Gzip output contains 0x0A bytes freely, and the import path finds the last complete
- * line by scanning for exactly that byte — a partial line is a real possibility when a
+ * line by scanning for exactly that byte, and a partial line is a real possibility when a
  * cloud client is mid-download. Base64 costs about a third of the compression back and
  * keeps that arithmetic correct.
  */
